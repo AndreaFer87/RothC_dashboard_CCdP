@@ -11,7 +11,7 @@ st.markdown("Analisi sequestro del carbonio - Modello Roth-C")
 def load_data():
     try:
         # Caricamento flessibile: sep=None capisce da solo se è , o ;
-        df = pd.read_csv("dati_cremona.csv", sep=None, engine='python', encoding='latin-1', on_bad_lines='skip')
+        df = pd.read_csv("Cremona_digestate.csv", sep=None, engine='python', encoding='latin-1', on_bad_lines='skip')
         
         # PULIZIA FONDAMENTALE: rimuove spazi bianchi dai nomi delle colonne
         # Esempio: trasforma " Rotazione " in "Rotazione"

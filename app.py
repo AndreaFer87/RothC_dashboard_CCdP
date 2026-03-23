@@ -42,36 +42,36 @@ if df is not None:
     baseline_nome = [s for s in scenari_totali if any(x in s for x in ['Baseline', 'CT'])][0]
     
     st.sidebar.header("2. Scenari Rigenerativi")
-    scenari_sim = st.sidebar.multiselect("Scegli scenari", [s for s in scenari_totali if s != baseline_nome])
+    scenari_sim = st.sidebar.multiselect("Scegli scenari da visualizzare", [s for s in scenari_totali if s != baseline_nome])
 
-    # --- PREPARAZIONE DATI PER ANIMAZIONE NATIVA ---
-    # Creiamo i frame per Plotly: dal mese 1 al 120
+    # --- LOGICA DEI FRAME (CORRETTA PER FAR APPARIRE GLI SCENARI) ---
+    scenari_attivi = [baseline_nome] + scenari_sim
     animation_list = []
-    step = 3 # Step per fluidità senza appesantire il browser
-    for m in range(1, 121, step):
-        # Baseline (0-m)
-        temp_base = df_rot[(df_rot['Scenario'] == baseline_nome) & (df_rot['Mese_Progressivo'] <= m)].copy()
-        # Scenari Rigenerativi (60-m)
-        if m >= 60:
-            temp_scen = df_rot[(df_rot['Scenario'].isin(scenari_sim)) & 
-                               (df_rot['Mese_Progressivo'] <= m) & 
-                               (df_rot['Mese_Progressivo'] >= 60)].copy()
-            temp_df = pd.concat([temp_base, temp_scen])
-        else:
-            temp_df = temp_base
-        
-        temp_df['Mese_Frame'] = m
-        animation_list.append(temp_df)
+    
+    # Step per fluidità (mese dopo mese o a salti di 2/3)
+    for m in range(1, 121, 3):
+        for scen in scenari_attivi:
+            # Prendiamo i dati reali dello scenario
+            temp = df_rot[(df_rot['Scenario'] == scen) & (df_rot['Mese_Progressivo'] <= m)].copy()
+            
+            # TRUCCO: Se lo scenario è rigenerativo e siamo prima del mese 60,
+            # lo facciamo coincidere con la baseline così la linea "nasce" dal punto giusto
+            if scen != baseline_nome and m < 60:
+                temp = df_rot[(df_rot['Scenario'] == baseline_nome) & (df_rot['Mese_Progressivo'] <= m)].copy()
+                temp['Scenario'] = scen # Fingiamo sia lo scenario scelto
+            
+            temp['Frame'] = m
+            animation_list.append(temp)
     
     df_anim = pd.concat(animation_list)
 
-    # --- CREAZIONE GRAFICO CON LOGICA SLIDER NATIVO ---
+    # --- CREAZIONE GRAFICO ---
     fig = px.line(
         df_anim, 
         x='Data', 
         y='total_soc', 
         color='Scenario',
-        animation_frame='Mese_Frame',
+        animation_frame='Frame',
         range_x=[df_rot['Data'].min(), df_rot['Data'].max()],
         range_y=[df_rot['total_soc'].min()*0.98, df_rot['total_soc'].max()*1.02],
         title=f"Evoluzione SOC Stock: {rot_scelta}",
@@ -79,40 +79,31 @@ if df is not None:
         template="plotly_white"
     )
 
-    # TRUCCO: Configuriamo l'animazione ma NASCONDIAMO i controlli grafici
+    # Configurazione tasto PLAY sotto il grafico (Slider nascosto)
     fig.layout.updatemenus = [dict(
         type="buttons",
         showactive=False,
-        x=0.05, y=-0.15, # Spostati fuori dal grafico
-        buttons=[dict(label="Play", method="animate", args=[None, {"frame": {"duration": 40, "redraw": False}, "fromcurrent": True, "transition": {"duration": 0}}])]
+        x=0, y=-0.15, # Posizionato sotto l'asse X
+        xanchor="left",
+        yanchor="top",
+        buttons=[dict(
+            label="▶ AVVIA SIMULAZIONE",
+            method="animate",
+            args=[None, {"frame": {"duration": 40, "redraw": False}, "fromcurrent": True, "transition": {"duration": 0}}]
+        )]
     )]
 
-    # Nascondiamo lo slider nativo (quello grigio brutto)
-    fig.layout.sliders = [dict(visible=False)]
+    fig.layout.sliders = [dict(visible=False)] # Slider grigio nascosto
     
-    # Linea 2026
+    # Linea rossa 2026
     split_date = pd.to_datetime("2026-01-01")
-    fig.add_shape(type="line", x0=split_date, x1=split_date, y0=0, y1=1, yref="paper", line=dict(color="Red", width=1, dash="dot"))
+    fig.add_shape(type="line", x0=split_date, x1=split_date, y0=0, y1=1, yref="paper", 
+                  line=dict(color="Red", width=1, dash="dot"))
 
-    # --- TASTO PLAY STREAMLIT ---
-    # Per far partire l'animazione nativa al click del tasto Streamlit,
-    # usiamo il parametro 'auto_play' nel momento in cui viene renderizzato.
-    st.sidebar.divider()
-    autostart = st.sidebar.button("▶️ PLAY AVVIA SIMULAZIONE")
-
-    # Visualizzazione
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-    
-    if autostart:
-        st.info("Simulazione avviata. Nota: Per motivi tecnici di Streamlit, l'animazione nativa si attiva interagendo con il tasto interno di Plotly se presente, oppure ricaricando i frame.")
-        # Poiché Streamlit non può "cliccare" un tasto JS in Plotly, il modo migliore 
-        # per restare fluidi senza slider è mostrare il tasto Play di Plotly piccolo e pulito.
-        # Ho riabilitato il tasto Play di Plotly ma rimpicciolito sotto.
-        fig.update_layout(updatemenus=[dict(visible=True, type="buttons", buttons=[dict(label="▶ AVVIA", method="animate", args=[None, {"frame": {"duration": 30, "redraw": False}, "fromcurrent": True}])])])
-        st.rerun()
 
-    # --- TABELLA FINALE ---
+    # --- TABELLA RISULTATI FINALI ---
     st.divider()
-    ultimi_dati = df_rot[df_rot['Mese_Progressivo'] == 120]
-    scenari_scelti = [baseline_nome] + scenari_sim
-    st.dataframe(ultimi_dati[ultimi_dati['Scenario'].isin(scenari_scelti)][['Scenario', 'total_soc', 'Input_C_Totale']])
+    st.subheader("Analisi Stock Finale (2031)")
+    ultimi_dati = df_rot[(df_rot['Mese_Progressivo'] == 120) & (df_rot['Scenario'].isin(scenari_attivi))]
+    st.dataframe(ultimi_dati[['Scenario', 'total_soc', 'Input_C_Totale']].style.highlight_max(subset=['total_soc'], color='#d4edda'))

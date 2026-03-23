@@ -10,16 +10,14 @@ st.markdown("Analisi sequestro del carbonio - Modello Roth-C")
 @st.cache_data
 def load_data():
     try:
-        # Caricamento flessibile: sep=None capisce da solo se è , o ;
-        df = pd.read_csv("Cremona_digestate.csv", sep=None, engine='python', encoding='latin-1', on_bad_lines='skip')
+        # Leggiamo il file Excel invece del CSV
+        df = pd.read_excel("Cremona_digestate.xlsx")
         
-        # PULIZIA FONDAMENTALE: rimuove spazi bianchi dai nomi delle colonne
-        # Esempio: trasforma " Rotazione " in "Rotazione"
+        # Pulizia nomi colonne
         df.columns = df.columns.str.strip()
-        
         return df
     except Exception as e:
-        st.error(f"Errore nel caricamento file: {e}")
+        st.error(f"Errore nel caricamento del file Excel: {e}")
         return None
 
 df = load_data()

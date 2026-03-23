@@ -12,7 +12,7 @@ st.markdown("Analisi SOC Stock basata su modello **Roth-C**")
 @st.cache_data
 def load_data():
     # Carica il file (assicurati che il nome sia identico a quello nella cartella)
-    df = pd.read_csv("Cremona_digestate.csv")
+    df = pd.read_csv("Cremona_digestate.csv", encoding='latin-1')
     return df
 
 try:

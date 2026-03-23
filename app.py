@@ -8,21 +8,21 @@ st.set_page_config(page_title="Casalasco Decarb", layout="wide")
 st.title("🌱 Simulatore Decarbonizzazione Casalasco")
 st.markdown("Analisi SOC Stock (2021-2031) - Relatore: **Andrea Ferrari**")
 
-# --- FUNZIONE CARICAMENTO DATI ---
+# --- FUNZIONE CARICAMENTO DATI EXCEL ---
 @st.cache_data
 def load_data(provincia, scelta_amm):
-    # Mappatura basata sui tuoi file caricati
+    # ATTENZIONE: Assicurati che i nomi dei file su GitHub siano ESATTAMENTE questi
     files = {
-        "Cremona": {"Sì": "Cremona_digestate.xlsx - Sheet 1.csv", "No": "Cremona_NOdigestate.xlsx - Sheet 1.csv"},
-        "Mantova": {"Sì": "Mantova_slurry.xlsx - Sheet 1.csv", "No": "Mantova_NOslurry.xlsx - Sheet 1.csv"},
-        "Piacenza": {"Sì": "Piacenza_manure.xlsx - Sheet 1.csv", "No": "Piacenza_NOmanure.xlsx - Sheet 1.csv"}
+        "Cremona": {"Sì": "Cremona_digestate.xlsx", "No": "Cremona_NOdigestate.xlsx"},
+        "Mantova": {"Sì": "Mantova_slurry.xlsx", "No": "Mantova_NOslurry.xlsx"},
+        "Piacenza": {"Sì": "Piacenza_manure.xlsx", "No": "Piacenza_NOmanure.xlsx"}
     }
     
     file_name = files[provincia][scelta_amm]
     
     try:
-        # Carichiamo il CSV
-        df = pd.read_csv(file_name, sep=None, engine='python', encoding='latin-1')
+        # Carichiamo il file Excel (.xlsx)
+        df = pd.read_excel(file_name)
         df.columns = df.columns.str.strip()
         
         # Creazione asse temporale reale (Mese 1 = Gen 2021)
@@ -30,7 +30,8 @@ def load_data(provincia, scelta_amm):
         df['Data'] = df['Mese_Progressivo'].apply(lambda x: start_date + pd.DateOffset(months=int(x-1)))
         return df
     except Exception as e:
-        st.error(f"Errore caricamento {file_name}: {e}")
+        st.error(f"Errore caricamento file Excel '{file_name}': {e}")
+        st.info("Verifica che il file su GitHub abbia l'estensione .xlsx e non .csv")
         return None
 
 # --- SIDEBAR ---
@@ -48,7 +49,7 @@ if df is not None:
     df_rot = df[df['Rotazione'] == rot_scelta]
     scenari_totali = df_rot['Scenario'].unique().tolist()
     
-    # Identifichiamo la baseline (solitamente contiene 'Baseline' o 'CT')
+    # Identifichiamo la baseline
     baseline_nome = [s for s in scenari_totali if 'Baseline' in s or 'CT' in s][0]
     
     scenari_sim = st.sidebar.multiselect(
@@ -66,10 +67,8 @@ if df is not None:
     split_date = pd.to_datetime("2026-01-01")
 
     def plot_graph(current_month):
-        # 1. Baseline: sempre visibile
         df_base = df_rot[(df_rot['Scenario'] == baseline_nome) & (df_rot['Mese_Progressivo'] <= current_month)]
         
-        # 2. Altri scenari: visibili solo dal mese 60 (fine 2025)
         df_scen = pd.DataFrame()
         if current_month >= 60:
             df_scen = df_rot[(df_rot['Scenario'].isin(scenari_sim)) & 
@@ -98,12 +97,10 @@ if df is not None:
     else:
         plot_graph(60)
 
-    # --- TABELLA RISULTATI (Correzione Errore Linea 116) ---
+    # --- TABELLA RISULTATI ---
     st.divider()
     st.subheader("Risultati Finali stimati al 2031")
     ultimi_dati = df_rot[df_rot['Mese_Progressivo'] == 120]
-    
-    # Filtriamo solo la baseline e gli scenari scelti per la tabella
     scenari_finali = [baseline_nome] + scenari_sim
     tabella_finale = ultimi_dati[ultimi_dati['Scenario'].isin(scenari_finali)]
     

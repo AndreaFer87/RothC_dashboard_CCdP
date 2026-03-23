@@ -3,115 +3,114 @@ import pandas as pd
 import plotly.express as px
 import time
 
-st.set_page_config(page_title="Casalasco - Decarb", layout="wide")
+st.set_page_config(page_title="Casalasco Decarb", layout="wide")
 
 st.title("🌱 Simulatore Decarbonizzazione Casalasco")
-st.markdown("Analisi SOC Stock (2021-2031) - Modello Roth-C")
+st.markdown("Analisi SOC Stock (2021-2031) - Relatore: **Andrea Ferrari**")
 
 # --- FUNZIONE CARICAMENTO DATI ---
 @st.cache_data
-def load_data(provincia, ammendante_si_no):
-    # Mappa dei file in base alle tue scelte
+def load_data(provincia, scelta_amm):
+    # Mappatura file
     files = {
-        "Cremona": {"Sì": "Cremona_digestate.xlsx", "No": "Cremona_NOdigestate.xlsx"},
-        "Mantova": {"Sì": "Mantova_slurry.xlsx", "No": "Mantova_NOslurry.xlsx"},
-        "Piacenza": {"Sì": "Piacenza_manure.xlsx", "No": "Piacenza_NOmanure.xlsx"}
+        "Cremona": {"Sì": "Cremona_digestate.csv", "No": "Cremona_NOdigestate.csv"},
+        "Mantova": {"Sì": "Mantova_slurry.csv", "No": "Mantova_NOslurry.csv"},
+        "Piacenza": {"Sì": "Piacenza_manure.csv", "No": "Piacenza_NOmanure.csv"}
     }
     
-    file_path = files[provincia][ammendante_si_no]
+    file_name = files[provincia][scelta_amm]
     
     try:
-        # Se hai caricato i file come XLSX su GitHub:
-        df = pd.read_excel(file_path)
+        # Leggiamo il CSV (sep=None per gestire virgola o punto e virgola)
+        df = pd.read_csv(file_name, sep=None, engine='python', encoding='latin-1')
         df.columns = df.columns.str.strip()
         
-        # Mappatura date: Mese 60 è Dicembre 2025
-        # Creiamo una colonna Data partendo da Gennaio 2021 (Mese 1)
+        # Creazione asse temporale reale (2021-2031)
         start_date = pd.to_datetime("2021-01-01")
         df['Data'] = df['Mese_Progressivo'].apply(lambda x: start_date + pd.DateOffset(months=int(x-1)))
         return df
     except Exception as e:
-        st.error(f"Errore caricamento {file_path}: {e}")
+        st.error(f"Errore caricamento {file_name}: {e}")
         return None
 
-# --- SIDEBAR DI CONTROLLO ---
-st.sidebar.header("Configurazione Dashboard")
-prov = st.sidebar.selectbox("Seleziona Provincia", ["Cremona", "Mantova", "Piacenza"])
+# --- SIDEBAR ---
+st.sidebar.header("Parametri Iniziali")
+prov = st.sidebar.selectbox("Provincia", ["Cremona", "Mantova", "Piacenza"])
 
-label_ammendante = {
-    "Cremona": "Uso Digestato?",
-    "Mantova": "Uso Slurry?",
-    "Piacenza": "Uso Letame?"
-}
-amm_scelta = st.sidebar.radio(label_ammendante[prov], ["Sì", "No"])
+amm_label = {"Cremona": "Digestato", "Mantova": "Slurry", "Piacenza": "Letame"}
+amm_scelta = st.sidebar.radio(f"Uso di {amm_label[prov]} nella Baseline?", ["Sì", "No"])
 
 df = load_data(prov, amm_scelta)
 
 if df is not None:
-    # Filtri Rotazione e Scenario
-    rotazioni = df['Rotazione'].unique()
-    rot_scelta = st.sidebar.selectbox("Rotazione", rotazioni)
+    rot_scelta = st.sidebar.selectbox("Rotazione Agricola", df['Rotazione'].unique())
     
-    scenari_totali = df[df['Rotazione'] == rot_scelta]['Scenario'].unique().tolist()
-    baseline_nome = "Baseline (CT)" # Assicurati che nel file si chiami così
+    df_rot = df[df['Rotazione'] == rot_scelta]
+    scenari_totali = df_rot['Scenario'].unique().tolist()
+    
+    # Identifichiamo la baseline
+    baseline_nome = [s for s in scenari_totali if 'Baseline' in s or 'CT' in s][0]
     
     scenari_sim = st.sidebar.multiselect(
-        "Scegli Scenari da Simulare (dal 2026)", 
+        "Seleziona Scenari Rigenerativi (dal 2026)", 
         [s for s in scenari_totali if s != baseline_nome]
     )
 
-    # --- LOGICA ANIMAZIONE / VISUALIZZAZIONE ---
-    col1, col2 = st.columns([4, 1])
-    
-    with col2:
-        st.write("### Controlli")
-        run_sim = st.button("▶️ Avvia Simulazione")
-        tempo_sim = st.slider("Velocità (sec)", 0.1, 1.0, 0.3)
-
-    # Dati filtrati per rotazione
-    df_rot = df[df['Rotazione'] == rot_scelta]
-    
-    # Placeholder per il grafico
+    # --- GRAFICO ANIMATO ---
     chart_placeholder = st.empty()
-
-    # Se clicco Play, simulo l'andamento
-    mesi_totali = df_rot['Mese_Progressivo'].max()
     
-    if run_sim:
-        for m in range(1, mesi_totali + 1):
-            # Filtriamo i dati fino al mese 'm'
-            # 1. Baseline sempre visibile
-            df_curr_base = df_rot[(df_rot['Scenario'] == baseline_nome) & (df_rot['Mese_Progressivo'] <= m)]
-            
-            # 2. Altri scenari visibili solo dal mese 60 in poi
-            df_curr_scen = df_rot[(df_rot['Scenario'].isin(scenari_sim)) & 
-                                  (df_rot['Mese_Progressivo'] <= m) & 
-                                  (df_rot['Mese_Progressivo'] >= 60)]
-            
-            df_viz = pd.concat([df_curr_base, df_curr_scen])
-            
-            fig = px.line(df_viz, x='Data', y='total_soc', color='Scenario',
-                         range_x=[df_rot['Data'].min(), df_rot['Data'].max()],
-                         range_y=[df_rot['total_soc'].min()*0.95, df_rot['total_soc'].max()*1.05],
-                         title=f"Simulazione in corso: {rot_scelta}",
-                         template="plotly_white")
-            
-            # Linea verticale per segnare l'inizio della fase rigenerativa (Gen 2026)
-            fig.add_vline(x=pd.to_datetime("2026-01-01"), line_dash="dash", line_color="green", annotation_text="Inizio Rigenerativa")
-            
-            chart_placeholder.plotly_chart(fig, use_container_width=True)
-            time.sleep(tempo_sim)
-    else:
-        # Visualizzazione statica iniziale (solo baseline o tutto se già pronti)
-        df_static = df_rot[df_rot['Scenario'] == baseline_nome]
-        fig = px.line(df_static, x='Data', y='total_soc', color='Scenario',
-                     title=f"Andamento Storico Baseline - {rot_scelta}",
+    st.sidebar.divider()
+    run_sim = st.sidebar.button("▶️ AVVIA SIMULAZIONE")
+    velocita = st.sidebar.select_slider("Velocità animazione", options=[0.5, 0.3, 0.1, 0.05], value=0.1)
+
+    # Data di split: Gennaio 2026 (Mese 61)
+    split_date = pd.to_datetime("2026-01-01")
+
+    def plot_graph(current_month, is_static=False):
+        # 1. Baseline: sempre visibile dall'inizio
+        df_base = df_rot[(df_rot['Scenario'] == baseline_nome) & (df_rot['Mese_Progressivo'] <= current_month)]
+        
+        # 2. Scenari: visibili solo se siamo oltre il mese 60
+        df_scen = pd.DataFrame()
+        if current_month >= 60:
+            df_scen = df_rot[(df_rot['Scenario'].isin(scenari_sim)) & 
+                            (df_rot['Mese_Progressivo'] <= current_month) & 
+                            (df_rot['Mese_Progressivo'] >= 60)]
+        
+        df_viz = pd.concat([df_base, df_scen])
+        
+        fig = px.line(df_viz, x='Data', y='total_soc', color='Scenario',
+                     range_x=[df_rot['Data'].min(), df_rot['Data'].max()],
+                     range_y=[df_rot['total_soc'].min()*0.98, df_rot['total_soc'].max()*1.02],
+                     title=f"Evoluzione Carbonio nel Suolo - {rot_scelta}",
                      template="plotly_white")
-        fig.add_vline(x=pd.to_datetime("2026-01-01"), line_dash="dash", line_color="gray")
+        
+        # Aggiunta linea verticale corretta per evitare l'errore TypeError
+        fig.add_shape(type="line", x0=split_date, x1=split_date, 
+                      y0=0, y1=1, yref="paper",
+                      line=dict(color="Green", width=2, dash="dash"))
+        
+        fig.add_annotation(x=split_date, y=df_rot['total_soc'].max(),
+                           text="Inizio Pratiche Rigenerative", showarrow=False, ysift=10)
+        
         chart_placeholder.plotly_chart(fig, use_container_width=True)
 
-    # --- TABELLA RIASSUNTIVA ---
+    # Logica di esecuzione
+    if run_sim:
+        # Animazione mese per mese
+        for m in range(1, 121, 2): # Saltiamo di 2 in 2 per fluidità
+            plot_graph(m)
+            time.sleep(velocita)
+        # Visualizzazione finale completa
+        plot_graph(120)
+    else:
+        # Mostriamo solo la baseline storica fino al 2025
+        plot_graph(60)
+
+    # --- KPI FINALI ---
     st.divider()
-    st.write("### Risultati Finali (Fine 2031)")
-    final_data = df_rot[df_rot['Mese_Progressivo'] == mesi_totali]
-    st.dataframe(final_data[['Scenario', 'total_soc', 'Input_C_Totale']])
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.subheader("Analisi al 2031")
+        ultimi_dati = df_rot[df_rot['Mese_Progressivo'] == 120]
+        st.dataframe(ultimi_dati[['Scenario', 'total_soc', 'Input_C_Totale']].style.highlight_max(subset=['total_soc

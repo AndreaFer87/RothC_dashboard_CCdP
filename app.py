@@ -11,12 +11,16 @@ st.markdown("Analisi SOC Stock basata su modello **Roth-C**")
 # Funzione caricamento dati
 @st.cache_data
 def load_data():
-    # Carica il file (assicurati che il nome sia identico a quello nella cartella)
-    df = pd.read_csv("Cremona_digestate.csv", encoding='latin-1')
-    return df
+    # Proviamo a leggere il file gestendo separatore, codifica e potenziali errori di riga
+    try:
+        # Usiamo 'sep=None' e 'engine=python' per far capire a pandas da solo se è virgola o punto e virgola
+        df = pd.read_csv("Cremona_digestate.csv", sep=None, engine='python', encoding='latin-1', on_bad_lines='skip')
+        return df
+    except Exception as e:
+        st.error(f"Errore critico: {e}")
+        return None
 
-try:
-    df = load_data()
+df = load_data()
 
     # Sidebar
     st.sidebar.header("Parametri")

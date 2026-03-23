@@ -7,10 +7,9 @@ st.set_page_config(page_title="Casalasco Decarb", layout="wide")
 st.title("🌱 Simulatore Dinamico Decarbonizzazione")
 st.markdown("Relatore: **Andrea Ferrari** | Analisi evolutiva SOC Stock")
 
-# --- CARICAMENTO DATI ---
+# --- FUNZIONE CARICAMENTO DATI ---
 @st.cache_data
 def load_data(provincia, scelta_amm):
-    # Assicurati che i file su GitHub siano .xlsx
     files = {
         "Cremona": {"Sì": "Cremona_digestate.xlsx", "No": "Cremona_NOdigestate.xlsx"},
         "Mantova": {"Sì": "Mantova_slurry.xlsx", "No": "Mantova_NOslurry.xlsx"},
@@ -20,7 +19,6 @@ def load_data(provincia, scelta_amm):
     try:
         df = pd.read_excel(file_name)
         df.columns = df.columns.str.strip()
-        # Creazione asse temporale
         start_date = pd.to_datetime("2021-01-01")
         df['Data'] = df['Mese_Progressivo'].apply(lambda x: start_date + pd.DateOffset(months=int(x-1)))
         return df
@@ -47,66 +45,82 @@ if df is not None:
     scenari_sim = st.sidebar.multiselect("Scegli scenari", [s for s in scenari_totali if s != baseline_nome])
 
     # --- PREPARAZIONE DATI PER ANIMAZIONE FLUIDA ---
-    scenari_finali = [baseline_nome] + scenari_sim
-    
-    # Creiamo un dataframe "cumulativo" per l'animazione
-    # Ogni frame 'f' contiene tutti i dati dal mese 0 al mese 'f'
-    animation_frames = []
-    
-    # Per non appesantire troppo, animiamo ogni 3 mesi (step=3)
-    step = 3
-    for m in range(1, 121, step):
-        # Filtro baseline (sempre presente da 0 a m)
-        temp_df = df_rot[(df_rot['Scenario'] == baseline_nome) & (df_rot['Mese_Progressivo'] <= m)].copy()
+    # Creiamo un dataframe con i frame per Plotly
+    animation_list = []
+    # Step 3 per bilanciare velocità e fluidità
+    for m in range(1, 121, 3):
+        # Baseline
+        temp_base = df_rot[(df_rot['Scenario'] == baseline_nome) & (df_rot['Mese_Progressivo'] <= m)].copy()
+        # Scenari rigenerativi (nascono a mese 60)
+        if m >= 60:
+            temp_scen = df_rot[(df_rot['Scenario'].isin(scenari_sim)) & 
+                               (df_rot['Mese_Progressivo'] <= m) & 
+                               (df_rot['Mese_Progressivo'] >= 60)].copy()
+            temp_df = pd.concat([temp_base, temp_scen])
+        else:
+            temp_df = temp_base
         
-        # Filtro scenari scelti (presenti solo se m > 60 e solo per la loro porzione)
-        if m > 60:
-            df_scen = df_rot[(df_rot['Scenario'].isin(scenari_sim)) & 
-                            (df_rot['Mese_Progressivo'] <= m) & 
-                            (df_rot['Mese_Progressivo'] >= 60)].copy()
-            temp_df = pd.concat([temp_df, df_scen])
-        
-        temp_df['Frame'] = m  # Identificativo del frame temporale
-        animation_frames.append(temp_df)
+        temp_df['Frame'] = m
+        animation_list.append(temp_df)
     
-    df_anim = pd.concat(animation_frames)
+    df_anim = pd.concat(animation_list)
 
-    # --- CREAZIONE GRAFICO ANIMATO (NATIVO PLOTLY) ---
+    # --- CREAZIONE GRAFICO CON SLIDER NASCOSTO ---
     fig = px.line(
         df_anim, 
         x='Data', 
         y='total_soc', 
         color='Scenario',
-        animation_frame='Frame', # Questa è la chiave per eliminare il flash
+        animation_frame='Frame',
         range_x=[df_rot['Data'].min(), df_rot['Data'].max()],
         range_y=[df_rot['total_soc'].min()*0.98, df_rot['total_soc'].max()*1.02],
         title=f"Evoluzione SOC Stock: {rot_scelta}",
+        labels={'total_soc': 'Stock di C (ton/ha)', 'Data': 'Anno'},
         template="plotly_white"
     )
 
-    # Miglioriamo la velocità dell'animazione
-    fig.layout.updatemenus[0].buttons[0].args[1]['frame']['duration'] = 50 # millisecondi
-    fig.layout.updatemenus[0].buttons[0].args[1]['transition']['duration'] = 20
+    # TRUCCO: Nascondiamo lo slider e i bottoni nativi di Plotly
+    fig.update_layout(
+        sliders=[dict(visible=False)], 
+        updatemenus=[dict(visible=False)], # Nasconde il tasto Play di Plotly
+        hovermode="x unified"
+    )
 
-    # Linea verticale fissa al 2026
+    # Velocità dell'animazione interna
+    fig.layout.updatemenus = [dict(
+        type="buttons",
+        buttons=[dict(label="Play", method="animate", args=[None, {"frame": {"duration": 50, "redraw": True}, "fromcurrent": True}])],
+        visible=False # Nascondiamo anche questo
+    )]
+
+    # Linea verticale 2026
     split_date = pd.to_datetime("2026-01-01")
     fig.add_shape(type="line", x0=split_date, x1=split_date, y0=0, y1=1, yref="paper",
                   line=dict(color="Red", width=1, dash="dot"))
 
+    # --- TASTO PLAY STREAMLIT ---
+    # Quando l'utente preme questo tasto, Streamlit ricarica l'app con l'animazione avviata
+    st.sidebar.divider()
+    if st.sidebar.button("▶️ PLAY AVVIA SIMULAZIONE"):
+        # Se premuto, impostiamo l'autostart dell'animazione Plotly
+        fig.layout.updatemenus[0].buttons[0].args[1]['auto_play'] = True
+    
     st.plotly_chart(fig, use_container_width=True)
 
-    st.info("💡 Clicca sul tasto 'Play' in basso a sinistra nel grafico per avviare la simulazione temporale.")
-
-    # --- TABELLA RIASSUNTIVA ---
+    # --- TABELLA E DELTA ---
     st.divider()
-    st.subheader("Confronto Stock Finale (2031)")
-    ultimi_dati = df_rot[(df_rot['Mese_Progressivo'] == 120) & (df_rot['Scenario'].isin(scenari_finali))]
+    ultimi_dati = df_rot[df_rot['Mese_Progressivo'] == 120]
+    scenari_attivi = [baseline_nome] + scenari_sim
+    df_tab = ultimi_dati[ultimi_dati['Scenario'].isin(scenari_attivi)]
     
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([2, 1])
     with col1:
-        st.dataframe(ultimi_dati[['Scenario', 'total_soc', 'Input_C_Totale']])
+        st.subheader("Stock finale al 2031")
+        st.dataframe(df_tab[['Scenario', 'total_soc', 'Input_C_Totale']].style.highlight_max(subset=['total_soc']))
+    
     with col2:
-        val_base = ultimi_dati[ultimi_dati['Scenario'] == baseline_nome]['total_soc'].values[0]
-        for s in scenari_sim:
-            val_scen = ultimi_dati[ultimi_dati['Scenario'] == s]['total_soc'].values[0]
-            st.metric(f"Incremento con {s}", f"{val_scen - val_base:.2f} Mg/ha")
+        if scenari_sim:
+            v_base = ultimi_dati[ultimi_dati['Scenario'] == baseline_nome]['total_soc'].values[0]
+            for s in scenari_sim:
+                v_scen = ultimi_dati[ultimi_dati['Scenario'] == s]['total_soc'].values[0]
+                st.metric(f"Guadagno {s}", f"{v_scen - v_base:.2f} ton/ha")

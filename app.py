@@ -40,14 +40,14 @@ def load_data(provincia, scelta_amm):
         return df
     except: return None
 
-# --- FUNZIONE LAYOUT PULITO (Senza Griglia e con Linea Target 2026) ---
+# --- FUNZIONE LAYOUT PULITO ---
 def apply_final_layout(fig, df_visualizzato, title, baseline_name, df_orig):
-    # Calcolo dinamico asse Y
     y_min = df_visualizzato['total_soc'].min() * 0.99
     y_max = df_visualizzato['total_soc'].max() * 1.01
     split_date = pd.to_datetime("2026-01-01")
+    end_date = pd.to_datetime("2030-12-01")
     
-    # Valore SOC a Gennaio 2026 (Mese 61) per la linea di riferimento orizzontale
+    # Valore SOC a Gennaio 2026 (Mese 61) per il punto di riferimento
     try:
         val_2026 = df_orig[(df_orig['Scenario_Esteso'] == "Gestione Tradizionale (Baseline)") & 
                            (df_orig['Mese_Progressivo'] == 61)]['total_soc'].values[0]
@@ -67,16 +67,15 @@ def apply_final_layout(fig, df_visualizzato, title, baseline_name, df_orig):
         )]
     )
     
-    # 1. Linea NERA CONTINUA (Target dal 2026 in avanti)
-    fig.add_shape(type="line", x0=split_date, x1=pd.to_datetime("2031-01-01"), 
-                  y0=val_2026, y1=val_2026,
-                  line=dict(color="Black", width=1.5, dash="solid"))
+    # 1. PUNTO NERO FINALE (Riferimento 2026 proiettato al 2030)
+    fig.add_trace(px.scatter(x=[end_date], y=[val_2026]).data[0])
+    fig.data[-1].update(mode='markers', marker=dict(color='black', size=10, symbol='circle'), 
+                        name='Livello Iniziale (2026)', showlegend=True)
     
-    # 2. Linea di demarcazione verticale tratteggiata (Gennaio 2026)
+    # 2. Linea di demarcazione verticale 2026
     fig.add_shape(type="line", x0=split_date, x1=split_date, y0=0, y1=1, yref="paper", 
-                  line=dict(color="Gray", width=1, dash="dot"))
+                  line=dict(color="LightGray", width=1, dash="dot"))
     
-    # 3. Spessore Baseline (corretto l'errore di sintassi qui)
     fig.update_traces(line=dict(width=2.5), selector=dict(name=baseline_name))
     return fig
 

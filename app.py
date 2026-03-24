@@ -78,18 +78,17 @@ with tab1:
     
     if df1 is not None:
         with c3:
-            # Mostriamo solo le rotazioni standard
             all_rots = df1['Rotazione'].unique()
             rots_standard = sorted([r for r in all_rots if "year" not in str(r).lower()])
             rot1 = st.selectbox("🚜 Rotazione", rots_standard, key="rot1")
         
-        # Dataset Baseline di riferimento (il tronco comune)
+        # Baseline di riferimento atomica
         df_base_real = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == base_n)].copy()
         
         final_targets = []
         df_merged_scenarios = pd.DataFrame()
 
-        # LOGICA SPECIALE PIACENZA CC
+        # LOGICA PIACENZA CC
         is_piacenza_cc = (p1 == "Piacenza" and a1 == "No" and "Pomodoro - Frumento" in rot1)
 
         if is_piacenza_cc:
@@ -111,76 +110,67 @@ with tab1:
                 scelte_cc = st.multiselect("📅 Seleziona frequenza Cover Crop", list(mapping_cc.keys()), key="m_cc_piacenza")
                 
                 if scelte_cc:
-                    # COSTRUZIONE DATASET PULITO (Senza doppie linee)
-                    temp_list = []
-                    # 1. Aggiungiamo la Baseline pura
-                    temp_list.append(df_base_real.assign(Legenda=base_n))
-                    
-                    # 2. Costruiamo gli scenari "Staffetta"
+                    temp_list = [df_base_real.assign(Legenda=base_n)]
                     for s in scelte_cc:
-                        rot_speciale = mapping_cc[s]
-                        # Dati dal file speciale (prendiamo lo scenario CC)
-                        df_spec = df1[(df1['Rotazione'] == rot_speciale) & (df1['Scenario'].str.contains("CC", na=False))].copy()
+                        rot_spec = mapping_cc[s]
+                        df_spec = df1[(df1['Rotazione'] == rot_spec) & (df1['Scenario'].str.contains("CC", na=False))].copy()
                         
-                        # Creiamo lo scenario unificato: 2021-2026 (Base) + 2026-2030 (Speciale)
-                        parte_storica = df_base_real[df_base_real['Mese_Progressivo'] <= 60].copy()
-                        parte_futura = df_spec[df_spec['Mese_Progressivo'] > 60].copy()
-                        
-                        unificato = pd.concat([parte_storica, parte_futura])
-                        unificato['Legenda'] = s
-                        temp_list.append(unificato)
-                    
+                        # Unione pulita: 0-60 Base, 61+ Speciale
+                        u = pd.concat([df_base_real[df_base_real['Mese_Progressivo'] <= 60], 
+                                      df_spec[df_spec['Mese_Progressivo'] > 60]])
+                        u['Legenda'] = s
+                        temp_list.append(u)
                     df_merged_scenarios = pd.concat(temp_list)
                     final_targets = [base_n] + scelte_cc
             else:
-                # Modalità Standard Piacenza
                 all_scens = [s for s in df1[df1['Rotazione'] == rot1]['Scenario_Esteso'].unique() if s != base_n]
-                scen_scelti = st.multiselect("✨ Scenari Rigenerativi Standard", all_scens, key="m1_std")
-                
+                scen_scelti = st.multiselect("✨ Scenari Standard", all_scens, key="m1_std")
                 temp_list = [df_base_real.assign(Legenda=base_n)]
                 for s in scen_scelti:
                     df_s = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == s)].copy()
-                    unificato = pd.concat([df_base_real[df_base_real['Mese_Progressivo'] <= 60], df_s[df_s['Mese_Progressivo'] > 60]])
-                    unificato['Legenda'] = s
-                    temp_list.append(unificato)
+                    u = pd.concat([df_base_real[df_base_real['Mese_Progressivo'] <= 60], df_s[df_s['Mese_Progressivo'] > 60]])
+                    u['Legenda'] = s
+                    temp_list.append(u)
                 df_merged_scenarios = pd.concat(temp_list)
                 final_targets = [base_n] + scen_scelti
-
         else:
-            # CASO STANDARD (Altre province/rotazioni)
+            # Caso normale
             all_scens = [s for s in df1[df1['Rotazione'] == rot1]['Scenario_Esteso'].unique() if s != base_n]
-            scen_scelti = st.multiselect("✨ Seleziona Scenari Rigenerativi", all_scens, key="m1_gen")
-            
+            scen_scelti = st.multiselect("✨ Seleziona Scenari", all_scens, key="m1_gen")
             temp_list = [df_base_real.assign(Legenda=base_n)]
             for s in scen_scelti:
                 df_s = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == s)].copy()
-                unificato = pd.concat([df_base_real[df_base_real['Mese_Progressivo'] <= 60], df_s[df_s['Mese_Progressivo'] > 60]])
-                unificato['Legenda'] = s
-                temp_list.append(unificato)
+                u = pd.concat([df_base_real[df_base_real['Mese_Progressivo'] <= 60], df_s[df_s['Mese_Progressivo'] > 60]])
+                u['Legenda'] = s
+                temp_list.append(u)
             df_merged_scenarios = pd.concat(temp_list)
             final_targets = [base_n] + scen_scelti
 
-        # --- DISEGNO GRAFICO ANIMATO ---
+        # --- GENERAZIONE GRAFICO ---
         if len(final_targets) > 1:
             val_2026 = df_base_real[df_base_real['Mese_Progressivo'] == 61]['total_soc'].values[0]
             
+            # Creazione frame puliti
             anim_frames = []
             for m in range(1, 118, 4):
-                temp_frame = df_merged_scenarios[df_merged_scenarios['Mese_Progressivo'] <= m].copy()
-                temp_frame['Frame'] = m
-                anim_frames.append(temp_frame)
+                temp_f = df_merged_scenarios[df_merged_scenarios['Mese_Progressivo'] <= m].copy()
+                temp_f['Frame'] = m
+                anim_frames.append(temp_f)
             
             df_anim = pd.concat(anim_frames)
             
             fig1 = px.line(df_anim, x='Data', y='total_soc', color='Legenda', 
                            animation_frame='Frame', 
-                           color_discrete_map={base_n: "#0000FF"}, 
+                           color_discrete_map={base_n: "#0000FF"},
                            template="plotly_white")
             
-            fig1 = apply_final_layout(fig1, df_merged_scenarios, f"Proiezione Stock Carbonio - {p1}", base_n, [(val_2026, p1)])
+            # Baseline in primo piano (zorder) e più spessa
+            fig1.update_traces(line=dict(width=4), selector=dict(name=base_n))
             
-            # Baseline sempre in primo piano e più spessa
-            fig1.update_traces(line=dict(width=3.5), selector=dict(name=base_n))
+            # Forza l'ordine delle tracce affinché la Baseline sia l'ultima disegnata (quindi sopra)
+            fig1.data = tuple(sorted(list(fig1.data), key=lambda x: 1 if x.name == base_n else 0))
+
+            fig1 = apply_final_layout(fig1, df_merged_scenarios, f"Proiezione Carbonio - {p1}", base_n, [(val_2026, p1)])
             st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 # --- LIVELLO 2 E 3 (Invariati) ---
 with tab2:

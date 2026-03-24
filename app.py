@@ -2,17 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# --- CONFIGURAZIONE ---
 st.set_page_config(page_title="Casalasco Decarb - Pro", layout="wide")
-
-st.markdown("""
-    <style>
-    .block-container { padding-top: 3.5rem !important; }
-    .main-title { font-size: 28px !important; font-weight: bold !important; color: #1E3A8A; margin-bottom: 20px !important; }
-    </style>
-    """, unsafe_allow_html=True)
-
-st.markdown('<h1 class="main-title">🌱 Simulazione Sequestro C - Modello RothC</h1>', unsafe_allow_html=True)
 
 # --- 1. MAPPATURA E COSTANTI ---
 MAPPING = {
@@ -27,44 +17,62 @@ MAPPING = {
 }
 base_n = "Gestione Tradizionale (Baseline)"
 
+# --- 2. FUNZIONI CORE ---
+
 def decode(name):
     return MAPPING.get(name.strip(), name.strip())
 
 @st.cache_data
 def load_data(provincia, scelta_amm):
+    suffix = {"Cremona": "digestate", "Mantova": "slurry", "Piacenza": "manure"}[provincia]
+    file_name = f"{provincia}_{suffix}.xlsx" if scelta_amm == "Sì" else f"{provincia}_NO{suffix}.xlsx"
     try:
-        suffix = {"Cremona": "digestate", "Mantova": "slurry", "Piacenza": "manure"}[provincia]
-        file_name = f"{provincia}_{suffix}.xlsx" if scelta_amm == "Sì" else f"{provincia}_NO{suffix}.xlsx"
+        # Nota: assicurarsi che openpyxl sia installato per leggere .xlsx
         df = pd.read_excel(file_name)
         df.columns = df.columns.str.strip()
         start_date = pd.to_datetime("2021-01-01")
         df['Data'] = df['Mese_Progressivo'].apply(lambda x: start_date + pd.DateOffset(months=int(x-1)))
         df['Scenario_Esteso'] = df['Scenario'].apply(decode)
         return df
-    except Exception:
+    except Exception as e:
+        st.error(f"Errore caricamento file {file_name}: {e}")
         return None
 
 def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferimento):
+    """Gestisce l'estetica del grafico e l'UNICO bottone di simulazione"""
     y_min = df_visualizzato['total_soc'].min() * 0.99
     y_max = df_visualizzato['total_soc'].max() * 1.01
+    split_date = pd.to_datetime("2026-01-01")
+    target_date = pd.to_datetime("2030-09-01")
+    
     fig.update_layout(
-        height=600, margin=dict(t=80),
-        title=dict(text=title, font=dict(size=20), y=0.95),
-        xaxis=dict(range=[pd.to_datetime("2021-01-01"), pd.to_datetime("2031-01-01")], showgrid=False), 
+        title=title,
+        xaxis=dict(range=[pd.to_datetime("2021-01-01"), pd.to_datetime("2031-01-01")], 
+                   fixedrange=True, showgrid=False), 
         yaxis=dict(range=[y_min, y_max], title="Stock di C (ton/ha)", showgrid=False),
-        sliders=[], 
-        updatemenus=[dict(type="buttons", showactive=False, x=0, y=-0.15,
+        sliders=[], # Rimuove lo slider dell'animazione per pulizia
+        updatemenus=[dict(
+            type="buttons", showactive=False, x=0, y=-0.15,
             buttons=[dict(label="▶ AVVIA SIMULAZIONE", method="animate", 
-            args=[None, {"frame": {"duration": 40, "redraw": False}, "fromcurrent": True}])]
+                          args=[None, {"frame": {"duration": 40, "redraw": False}, "fromcurrent": True}])]
         )]
     )
+    
+    # Aggiunta punti di riferimento (target 2026 calcolato)
     for val, label in punti_riferimento:
-        fig.add_trace(px.scatter(x=[pd.to_datetime("2030-09-01")], y=[val]).data[0])
-        fig.data[-1].update(mode='markers', marker=dict(color='black', size=12), name=f"Rif. 2026: {label}")
-    fig.add_shape(type="line", x0=pd.to_datetime("2026-01-01"), x1=pd.to_datetime("2026-01-01"), line=dict(color="Red", width=2, dash="dot"))
+        fig.add_trace(px.scatter(x=[target_date], y=[val]).data[0])
+        fig.data[-1].update(mode='markers', marker=dict(color='black', size=12, symbol='circle'), 
+                            name=f"Rif. 2026: {label}", showlegend=True)
+    
+    # Linea verticale rossa 2026
+    fig.add_shape(type="line", x0=split_date, x1=split_date, y0=0, y1=1, yref="paper", 
+                  line=dict(color="Red", width=2, dash="dot"))
+    
+    # Baseline Blu: spessore ridotto a 2.5 per non essere troppo invasiva
     fig.update_traces(line=dict(width=2.5), selector=dict(name=baseline_name))
     return fig
 
+# --- 3. DEFINIZIONE TAB ---
 tab1, tab2, tab3 = st.tabs(["📊 LIVELLO 1", "🧪 LIVELLO 2", "🌍 LIVELLO 3"])
 
 # --- LIVELLO 1 ---
@@ -72,148 +80,154 @@ with tab1:
     c1, c2, c3 = st.columns(3)
     with c1: p1 = st.selectbox("📍 Provincia", ["Cremona", "Mantova", "Piacenza"], key="p1")
     with c2: a1 = st.radio(f"Ammendante ({p1})?", ["Sì", "No"], horizontal=True, key="a1")
+    
     df1 = load_data(p1, a1)
     
     if df1 is not None:
-        rots_std = sorted([r for r in df1['Rotazione'].unique() if "year" not in str(r).lower()])
-        with c3: rot1 = st.selectbox("🚜 Rotazione", rots_std, key="rot1")
+        with c3:
+            all_rots = df1['Rotazione'].unique()
+            rots_standard = sorted([r for r in all_rots if "year" not in str(r).lower()])
+            rot1 = st.selectbox("🚜 Rotazione", rots_standard, key="rot1")
         
-        base_df1 = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == base_n)].copy()
+        df_base_real = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == base_n)].copy()
         
-        if base_df1.empty:
-            st.info("Seleziona una rotazione per visualizzare i dati.")
-            st.stop()
+        # LOGICA PIACENZA CC (Frequenze Speciali)
+        is_piacenza_cc = (p1 == "Piacenza" and a1 == "No" and "Pomodoro - Frumento" in rot1)
 
-        scen_list = []
-        targets1 = []
-        
-        if p1 == "Piacenza" and a1 == "No" and "Pomodoro" in rot1:
+        if is_piacenza_cc:
             st.markdown("---")
-            cc_c1, cc_c2 = st.columns(2)
-            with cc_c1: mod_cc = st.radio("🧐 **Analisi Frequenza Cover Crop?**", ["No", "Sì"], horizontal=True, key="mcc_piac")
-            
-            if mod_cc == "Sì":
-                m_cc = {
-                    "CC Anno 1": "year1", "CC Anno 3": "year3", "CC Anno 5": "year5",
-                    "CC Anni 1 e 3": "year13", "CC Anni 1 e 5": "year15"
-                }
-                with cc_c2: s_cc = st.selectbox("✨ Pratica", [s for s in df1['Scenario_Esteso'].unique() if s != base_n], key="scc_p_val")
-                f_sel = st.multiselect("📅 Seleziona Frequenze", list(m_cc.keys()))
-                
-                if f_sel:
-                    targets1 = f_sel + [base_n]
-                    for s in targets1:
-                        if s == base_n: u = base_df1.copy()
-                        else:
-                            df_spec = df1[(df1['Rotazione'].astype(str).str.contains(m_cc[s])) & (df1['Scenario_Esteso'] == s_cc)].copy()
-                            u = pd.concat([base_df1[base_df1['Mese_Progressivo'] <= 60], df_spec[df_spec['Mese_Progressivo'] > 60]]) if not df_spec.empty else base_df1.copy()
-                        u['Legenda_Anim'] = s
-                        scen_list.append(u)
-            else:
-                s_std = st.multiselect("✨ Scenari", [s for s in df1[df1['Rotazione'] == rot1]['Scenario_Esteso'].unique() if s != base_n])
-                targets1 = s_std + [base_n]
-                for s in targets1:
-                    df_s = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == s)].copy()
-                    u = pd.concat([base_df1[base_df1['Mese_Progressivo'] <= 60], df_s[df_s['Mese_Progressivo'] > 60]])
-                    u['Legenda_Anim'] = s
-                    scen_list.append(u)
-        else:
-            s_std = st.multiselect("✨ Scenari", [s for s in df1[df1['Rotazione'] == rot1]['Scenario_Esteso'].unique() if s != base_n])
-            targets1 = s_std + [base_n]
-            for s in targets1:
-                df_s = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == s)].copy()
-                u = pd.concat([base_df1[base_df1['Mese_Progressivo'] <= 60], df_s[df_s['Mese_Progressivo'] > 60]])
-                u['Legenda_Anim'] = s
-                scen_list.append(u)
+            col_cc1, col_cc2 = st.columns(2)
+            with col_cc1:
+                modalita_cc = st.radio("🧐 **Analisi Frequenza Cover Crop?**",
+                                       ["No, simulazione standard", "Sì, confronta frequenze"], horizontal=True)
 
-        if scen_list:
-            df_m1 = pd.concat(scen_list)
-            v26_df = base_df1[base_df1['Mese_Progressivo'] >= 60]
-            v26_1 = v26_df['total_soc'].iloc[0] if not v26_df.empty else 0
+            if modalita_cc == "Sì, confronta frequenze":
+                mapping_cc = {
+                    "CC Anno 1": "Pomodoro - Frumento granella 1cc year1",
+                    "CC Anno 3": "Pomodoro - Frumento granella 1cc year3",
+                    "CC Anno 5": "Pomodoro - Frumento granella 1cc year5",
+                    "CC Anni 1 e 3": "Pomodoro - Frumento granella 1cc year13",
+                    "CC Anni 1 e 5": "Pomodoro - Frumento granella 1cc year15"
+                }
+                with col_cc2:
+                    scenari_speciali = [s for s in df1[df1['Rotazione'] == mapping_cc["CC Anno 1"]]['Scenario_Esteso'].unique() if s != base_n]
+                    scen_cc_scelto = st.selectbox("✨ Pratica da applicare alle frequenze", scenari_speciali)
+                
+                scelte_freq = st.multiselect("📅 Seleziona frequenze", list(mapping_cc.keys()))
+                if scelte_freq:
+                    final_targets = scelte_freq + [base_n]
+                    temp_list = []
+                    for s in final_targets:
+                        if s == base_n:
+                            u = df_base_real.copy()
+                        else:
+                            df_spec = df1[(df1['Rotazione'] == mapping_cc[s]) & (df1['Scenario_Esteso'] == scen_cc_scelto)].copy()
+                            u = pd.concat([df_base_real[df_base_real['Mese_Progressivo'] <= 60], df_spec[df_spec['Mese_Progressivo'] > 60]])
+                        u['Legenda'] = s
+                        temp_list.append(u)
+                    df_merged_scenarios = pd.concat(temp_list)
+            else:
+                scen_scelti = st.multiselect("✨ Scenari Standard", [s for s in df1[df1['Rotazione'] == rot1]['Scenario_Esteso'].unique() if s != base_n])
+                final_targets = scen_scelti + [base_n]
+                temp_list = []
+                for s in final_targets:
+                    df_s = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == s)].copy()
+                    u = pd.concat([df_base_real[df_base_real['Mese_Progressivo'] <= 60], df_s[df_s['Mese_Progressivo'] > 60]])
+                    u['Legenda'] = s
+                    temp_list.append(u)
+                df_merged_scenarios = pd.concat(temp_list)
+        else:
+            scen_scelti = st.multiselect("✨ Seleziona Scenari", [s for s in df1[df1['Rotazione'] == rot1]['Scenario_Esteso'].unique() if s != base_n])
+            final_targets = scen_scelti + [base_n]
+            temp_list = []
+            for s in final_targets:
+                df_s = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == s)].copy()
+                u = pd.concat([df_base_real[df_base_real['Mese_Progressivo'] <= 60], df_s[df_s['Mese_Progressivo'] > 60]])
+                u['Legenda'] = s
+                temp_list.append(u)
+            df_merged_scenarios = pd.concat(temp_list)
+
+        # --- DISEGNO GRAFICO LIVELLO 1 ---
+        if 'final_targets' in locals() and len(final_targets) > 1:
+            val_2026 = df_base_real[df_base_real['Mese_Progressivo'] == 61]['total_soc'].values[0]
+            anim_frames = []
+            for m in range(1, 118, 4):
+                for s in final_targets:
+                    # Logica Staffetta: fino al 2026 usiamo i dati reali della baseline per tutti
+                    if m <= 60:
+                        temp_f = df_base_real[df_base_real['Mese_Progressivo'] <= m].copy()
+                    else:
+                        temp_f = df_merged_scenarios[(df_merged_scenarios['Legenda'] == s) & (df_merged_scenarios['Mese_Progressivo'] <= m)].copy()
+                    temp_f['Legenda_Anim'], temp_f['Frame'] = s, m
+                    anim_frames.append(temp_f)
             
-            anim1 = []
-            for m in range(1, 121, 4):
-                for s in targets1:
-                    t_f = df_m1[(df_m1['Legenda_Anim'] == s) & (df_m1['Mese_Progressivo'] <= m)].copy()
-                    if not t_f.empty:
-                        t_f['Frame'] = m
-                        anim1.append(t_f)
+            df_anim = pd.concat(anim_frames).sort_values(['Frame', 'Mese_Progressivo'])
+            fig1 = px.line(df_anim, x='Data', y='total_soc', color='Legenda_Anim', 
+                           animation_frame='Frame', color_discrete_map={base_n: "#0000FF"},
+                           template="plotly_white", category_orders={"Legenda_Anim": final_targets})
             
-            if anim1:
-                fig1 = px.line(pd.concat(anim1).sort_values(['Frame', 'Mese_Progressivo']), x='Data', y='total_soc', color='Legenda_Anim', animation_frame='Frame', color_discrete_map={base_n: "#0000FF"}, template="plotly_white")
-                st.plotly_chart(apply_final_layout(fig1, df_m1, f"Proiezione - {p1}", base_n, [(v26_1, p1)]), use_container_width=True)
+            fig1 = apply_final_layout(fig1, df_merged_scenarios, f"Proiezione Carbonio - {p1}", base_n, [(val_2026, p1)])
+            st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 
 # --- LIVELLO 2 ---
 with tab2:
     p2 = st.selectbox("📍 Provincia", ["Cremona", "Mantova", "Piacenza"], key="p2")
-    dsi, dno = load_data(p2, "Sì"), load_data(p2, "No")
-    if dsi is not None and dno is not None:
-        c2a, c2b, c2c = st.columns(3)
-        with c2a: r2 = st.selectbox("🚜 Rotazione", sorted([r for r in dsi['Rotazione'].unique() if "year" not in str(r).lower()]), key="r2")
-        with c2b: s2 = st.selectbox("✨ Scenario", [s for s in dsi['Scenario_Esteso'].unique() if base_n not in s], key="s2")
-        with c2c: ab2 = st.radio("Ammendante in Baseline?", ["Sì", "No"], horizontal=True, key="ab2")
+    df_si, df_no = load_data(p2, "Sì"), load_data(p2, "No")
+    if df_si is not None and df_no is not None:
+        c1, c2, c3 = st.columns(3)
+        with c1: rot2 = st.selectbox("🚜 Rotazione", df_si['Rotazione'].unique(), key="rot2")
+        with c2: scen2 = st.selectbox("✨ Scenario Rigenerativo", [s for s in df_si['Scenario_Esteso'].unique() if base_n not in s], key="scen2")
+        with c3: amm_base = st.radio("Ammendante nella Baseline?", ["Sì", "No"], horizontal=True)
         
-        dref2 = dsi if ab2 == "Sì" else dno
-        b_lbl = "Baseline (Riferimento)"
-        t2_list = [f"{s2} (+ Amm.)", f"{s2} (No Amm.)", b_lbl]
-        
-        scen_list2 = []
-        for t in t2_list:
-            src = dsi if "+ Amm." in t else (dno if "No Amm." in t else dref2)
-            sn = s2 if t != b_lbl else base_n
-            u = pd.concat([dref2[(dref2['Rotazione'] == r2) & (dref2['Scenario_Esteso'] == base_n) & (dref2['Mese_Progressivo'] <= 60)],
-                           src[(src['Rotazione'] == r2) & (src['Scenario_Esteso'] == sn) & (src['Mese_Progressivo'] > 60)]])
-            u['Legenda_Anim'] = t
-            scen_list2.append(u)
-        
-        df_m2 = pd.concat(scen_list2)
-        v26_df2 = dref2[(dref2['Rotazione'] == r2) & (dref2['Scenario_Esteso'] == base_n) & (dref2['Mese_Progressivo'] >= 60)]
-        v26_2 = v26_df2['total_soc'].iloc[0] if not v26_df2.empty else 0
+        df_base_ref = df_si if amm_base == "Sì" else df_no
+        b_ref_name = "Baseline (Riferimento)"
+        targets2_list = [f"{scen2} (+ Amm.)", f"{scen2} (No Amm.)", b_ref_name]
         
         anim2 = []
-        for m in range(1, 121, 4):
-            for t in t2_list:
-                t_f = df_m2[(df_m2['Legenda_Anim'] == t) & (df_m2['Mese_Progressivo'] <= m)].copy()
-                if not t_f.empty:
-                    t_f['Frame'] = m
-                    anim2.append(t_f)
+        for m in range(1, 118, 4):
+            for t in targets2_list:
+                src = df_si if "+ Amm." in t else (df_no if "No Amm." in t else df_base_ref)
+                s_name = scen2 if t != b_ref_name else base_n
+                # Staffetta
+                if m <= 60:
+                    temp = df_base_ref[(df_base_ref['Rotazione'] == rot2) & (df_base_ref['Scenario_Esteso'] == base_n) & (df_base_ref['Mese_Progressivo'] <= m)].copy()
+                else:
+                    temp = src[(src['Rotazione'] == rot2) & (src['Scenario_Esteso'] == s_name) & (src['Mese_Progressivo'] <= m)].copy()
+                temp['Legenda'], temp['Frame'] = t, m
+                anim2.append(temp)
         
-        if anim2:
-            fig2 = px.line(pd.concat(anim2).sort_values(['Frame', 'Mese_Progressivo']), x='Data', y='total_soc', color='Legenda_Anim', animation_frame='Frame', color_discrete_map={b_lbl: "#0000FF"}, template="plotly_white")
-            st.plotly_chart(apply_final_layout(fig2, df_m2, f"Impatto Ammendante - {p2}", b_lbl, [(v26_2, "Base")]), use_container_width=True)
+        df_anim2 = pd.concat(anim2).sort_values(['Frame', 'Mese_Progressivo'])
+        val_2026_l2 = df_base_ref[(df_base_ref['Rotazione'] == rot2) & (df_base_ref['Scenario_Esteso'] == base_n) & (df_base_ref['Mese_Progressivo'] == 61)]['total_soc'].values[0]
+        fig2 = px.line(df_anim2, x='Data', y='total_soc', color='Legenda', animation_frame='Frame',
+                       color_discrete_map={b_ref_name: "#0000FF"}, template="plotly_white",
+                       category_orders={"Legenda": targets2_list})
+        fig2 = apply_final_layout(fig2, df_anim2, f"Impatto Ammendante - {p2}", b_ref_name, [(val_2026_l2, "Base")])
+        st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
 
 # --- LIVELLO 3 ---
 with tab3:
-    c3a, c3b = st.columns(2)
-    with c3a: pa, aa = st.selectbox("Sito A", ["Cremona", "Mantova", "Piacenza"], key="pa"), st.radio("Amm. A", ["Sì", "No"], key="aa")
-    with c3b: pb, ab = st.selectbox("Sito B", ["Cremona", "Mantova", "Piacenza"], index=1, key="pb"), st.radio("Amm. B", ["Sì", "No"], key="ab")
+    c1, c2 = st.columns(2)
+    with c1: pa, aa = st.selectbox("Sito A", ["Cremona", "Mantova", "Piacenza"], key="pa"), st.radio("Amm. A", ["Sì", "No"])
+    with c2: pb, ab = st.selectbox("Sito B", ["Cremona", "Mantova", "Piacenza"], index=1, key="pb"), st.radio("Amm. B", ["Sì", "No"])
     dfa, dfb = load_data(pa, aa), load_data(pb, ab)
     if dfa is not None and dfb is not None:
-        common_rots = sorted([r for r in list(set(dfa['Rotazione']) & set(dfb['Rotazione'])) if "year" not in str(r).lower()])
-        if common_rots:
-            r3 = st.selectbox("🚜 Rotazione Comune", common_rots, key="r3")
-            s3 = st.selectbox("✨ Scenario", [s for s in dfa['Scenario_Esteso'].unique() if base_n not in s], key="s3")
-            la, lb = f"{pa} ({aa})", f"{pb} ({ab})"
-            
-            scen_list3 = []
-            for df, lbl in [(dfa, la), (dfb, lb)]:
-                u = pd.concat([df[(df['Rotazione'] == r3) & (df['Scenario_Esteso'] == base_n) & (df['Mese_Progressivo'] <= 60)],
-                               df[(df['Rotazione'] == r3) & (df['Scenario_Esteso'] == s3) & (df['Mese_Progressivo'] > 60)]])
-                u['Legenda_Anim'] = lbl
-                scen_list3.append(u)
-                
-            df_m3 = pd.concat(scen_list3)
-            v26_a = dfa[(dfa['Rotazione'] == r3) & (dfa['Scenario_Esteso'] == base_n) & (dfa['Mese_Progressivo'] >= 60)]['total_soc'].iloc[0]
-            v26_b = dfb[(dfb['Rotazione'] == r3) & (dfb['Scenario_Esteso'] == base_n) & (dfb['Mese_Progressivo'] >= 60)]['total_soc'].iloc[0]
-            
-            anim3 = []
-            for m in range(1, 121, 4):
-                for lbl in [la, lb]:
-                    t_f = df_m3[(df_m3['Legenda_Anim'] == lbl) & (df_m3['Mese_Progressivo'] <= m)].copy()
-                    if not t_f.empty:
-                        t_f['Frame'] = m
-                        anim3.append(t_f)
-            
-            if anim3:
-                fig3 = px.line(pd.concat(anim3).sort_values(['Frame', 'Mese_Progressivo']), x='Data', y='total_soc', color='Legenda_Anim', animation_frame='Frame', template="plotly_white")
-                st.plotly_chart(apply_final_layout(fig3, df_m3, "Confronto Territoriale", "NONE", [(v26_a, pa), (v26_b, pb)]), use_container_width=True)
+        rot3 = st.selectbox("🚜 Rotazione Comune", list(set(dfa['Rotazione']) & set(dfb['Rotazione'])))
+        scen3 = st.selectbox("✨ Scenario da confrontare", [s for s in dfa['Scenario_Esteso'].unique() if base_n not in s])
+        lbl_a, lbl_b = f"{pa} ({aa})", f"{pb} ({ab})"
+        anim3 = []
+        for m in range(1, 118, 4):
+            for (df, lbl) in [(dfa, lbl_a), (dfb, lbl_b)]:
+                # Staffetta
+                if m <= 60:
+                    temp = df[(df['Rotazione'] == rot3) & (df['Scenario_Esteso'] == base_n) & (df['Mese_Progressivo'] <= m)].copy()
+                else:
+                    temp = df[(df['Rotazione'] == rot3) & (df['Scenario_Esteso'] == scen3) & (df['Mese_Progressivo'] <= m)].copy()
+                temp['Sito'], temp['Frame'] = lbl, m
+                anim3.append(temp)
+        
+        df_anim3 = pd.concat(anim3).sort_values(['Frame', 'Mese_Progressivo'])
+        val_2026_A = dfa[(dfa['Rotazione'] == rot3) & (dfa['Scenario_Esteso'] == base_n) & (dfa['Mese_Progressivo'] == 61)]['total_soc'].values[0]
+        val_2026_B = dfb[(dfb['Rotazione'] == rot3) & (dfb['Scenario_Esteso'] == base_n) & (dfb['Mese_Progressivo'] == 61)]['total_soc'].values[0]
+        fig3 = px.line(df_anim3, x='Data', y='total_soc', color='Sito', animation_frame='Frame', template="plotly_white")
+        fig3 = apply_final_layout(fig3, df_anim3, "Confronto Territoriale", "NESSUNA", [(val_2026_A, pa), (val_2026_B, pb)])
+        st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': False})

@@ -41,7 +41,7 @@ def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferim
     y_min = df_visualizzato['total_soc'].min() * 0.99
     y_max = df_visualizzato['total_soc'].max() * 1.01
     split_date = pd.to_datetime("2026-01-01")
-    target_date = pd.to_datetime("2030-09-01") # Pallino a Settembre 2030
+    target_date = pd.to_datetime("2030-09-01")
     
     fig.update_layout(
         title=title,
@@ -55,21 +55,17 @@ def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferim
                           args=[None, {"frame": {"duration": 40, "redraw": False}, "fromcurrent": True}])]
         )]
     )
-    # Aggiunta Punti Neri (Traguardo)
     for val, label in punti_riferimento:
         fig.add_trace(px.scatter(x=[target_date], y=[val]).data[0])
         fig.data[-1].update(mode='markers', marker=dict(color='black', size=12, symbol='circle'), 
                             name=f"Rif. 2026: {label}", showlegend=True)
     
-    # Linea verticale di separazione storica
     fig.add_shape(type="line", x0=split_date, x1=split_date, y0=0, y1=1, yref="paper", 
                   line=dict(color="LightGray", width=1, dash="dot"))
-    
     fig.update_traces(line=dict(width=2.5), selector=dict(name=baseline_name))
     return fig
 
 # --- 3. DEFINIZIONE TAB ---
-st.title("🌱 Dashboard Decarbonizzazione Casalasco")
 tab1, tab2, tab3 = st.tabs(["📊 LIVELLO 1", "🧪 LIVELLO 2", "🌍 LIVELLO 3"])
 
 # --- 4. LIVELLO 1 ---
@@ -81,36 +77,38 @@ with tab1:
     df1 = load_data(p1, a1)
     if df1 is not None:
         with c3:
-            # Forziamo la rotazione specifica
-            available_rots = [str(r).strip() for r in df1['Rotazione'].unique()]
-            target_rot = "Pomodoro-Frumento granella"
-            # Se il nome non è identico, cerchiamo quello che contiene le parole chiave
-            rot1_name = next((r for r in available_rots if "Pomodoro" in r and "Frumento" in r), available_rots[0])
-            rot1 = st.selectbox("🚜 Rotazione", [rot1_name], key="rot1")
+            # RIPRISTINATE TUTTE LE ROTAZIONI
+            available_rots = sorted(df1['Rotazione'].unique())
+            rot1 = st.selectbox("🚜 Rotazione", available_rots, key="rot1")
         
-        df1_f = df1[df1['Rotazione'].str.strip() == rot1].copy()
+        df1_f = df1[df1['Rotazione'] == rot1].copy()
         all_scens = [s for s in df1_f['Scenario_Esteso'].unique() if s != base_n]
-        
-        # Parole chiave per gli scenari di frequenza CC
         cc_keywords = ["anno 1", "anno 3", "anno 5", "anni 1"]
-
-        st.markdown("---")
-        modalita_cc = st.radio(
-            "🧐 **Vuoi analizzare l'effetto della frequenza di coltivazione delle Cover Crop?**",
-            ["No, simulazione standard", "Sì, confronta annate CC"],
-            horizontal=True, key="radio_freq_cc"
-        )
-
         final_targets = []
-        if modalita_cc == "Sì, confronta annate CC":
-            scenari_temporali = [s for s in all_scens if any(k in s.lower() for k in cc_keywords)]
-            scen_cc_scelti = st.multiselect("📅 Varianti temporali Cover Crop", scenari_temporali, key="m_cc_only")
-            final_targets = scen_cc_scelti + [base_n]
-        else:
-            scenari_standard = [s for s in all_scens if not any(k in s.lower() for k in cc_keywords)]
-            scen_std_scelti = st.multiselect("✨ Scenari Rigenerativi Standard", scenari_standard, key="m1_std")
-            final_targets = scen_std_scelti + [base_n]
 
+        # LOGICA SPECIALE: Solo se Piacenza E rotazione Pomodoro-Frumento
+        if p1 == "Piacenza" and ("Pomodoro" in rot1 and "Frumento" in rot1):
+            st.markdown("---")
+            modalita_cc = st.radio(
+                "🧐 **Vuoi analizzare l'effetto della frequenza di coltivazione delle Cover Crop?**",
+                ["No, simulazione standard", "Sì, confronta annate CC"],
+                horizontal=True, key="radio_freq_cc"
+            )
+
+            if modalita_cc == "Sì, confronta annate CC":
+                scenari_temporali = [s for s in all_scens if any(k in s.lower() for k in cc_keywords)]
+                scen_cc_scelti = st.multiselect("📅 Varianti temporali Cover Crop", scenari_temporali, key="m_cc_only")
+                final_targets = scen_cc_scelti + [base_n]
+            else:
+                scenari_standard = [s for s in all_scens if not any(k in s.lower() for k in cc_keywords)]
+                scen_std_scelti = st.multiselect("✨ Scenari Rigenerativi Standard", scenari_standard, key="m1_std")
+                final_targets = scen_std_scelti + [base_n]
+        else:
+            # CASO NORMALE PER TUTTE LE ALTRE ROTAZIONI
+            scen_scelti = st.multiselect("✨ Seleziona Scenari Rigenerativi", all_scens, key="m1_gen")
+            final_targets = scen_scelti + [base_n]
+
+        # DISEGNO GRAFICO
         if len(final_targets) > 1:
             df_snapshot = df1_f[df1_f['Scenario_Esteso'].isin(final_targets)]
             try:
@@ -131,7 +129,7 @@ with tab1:
             fig1 = apply_final_layout(fig1, df_snapshot, f"Analisi Scenari - {p1}", base_n, [(val_2026, p1)])
             st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 
-# --- 5. LIVELLO 2 ---
+# --- LIVELLO 2 E 3 (Invariati) ---
 with tab2:
     p2 = st.selectbox("📍 Provincia", ["Cremona", "Mantova", "Piacenza"], key="p2")
     df_si, df_no = load_data(p2, "Sì"), load_data(p2, "No")
@@ -140,12 +138,10 @@ with tab2:
         with c1: rot2 = st.selectbox("🚜 Rotazione", df_si['Rotazione'].unique(), key="rot2")
         with c2: scen2 = st.selectbox("✨ Scenario Rigenerativo", [s for s in df_si['Scenario_Esteso'].unique() if base_n not in s], key="scen2")
         with c3: amm_base = st.radio("Ammendante nella Baseline?", ["Sì", "No"], horizontal=True, key="amm_base")
-        
         df_base_ref = df_si if amm_base == "Sì" else df_no
         targets2 = {f"{scen2} (+ Amm.)": (df_si, scen2), f"{scen2} (No Amm.)": (df_no, scen2), "Baseline (Riferimento)": (df_base_ref, base_n)}
         df_snapshot2 = pd.concat([df_si[df_si['Scenario_Esteso'] == scen2], df_no[df_no['Scenario_Esteso'] == scen2], df_base_ref[df_base_ref['Scenario_Esteso'] == base_n]])
         val_2026_l2 = df_base_ref[(df_base_ref['Rotazione'] == rot2) & (df_base_ref['Scenario_Esteso'] == base_n) & (df_base_ref['Mese_Progressivo'] == 61)]['total_soc'].values[0]
-
         anim2 = []
         for m in range(1, 118, 4):
             for name, (src, s_name) in targets2.items():
@@ -159,7 +155,6 @@ with tab2:
         fig2 = apply_final_layout(fig2, df_snapshot2, f"Impatto Ammendante - {p2}", "Baseline (Riferimento)", [(val_2026_l2, "Base")])
         st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
 
-# --- 6. LIVELLO 3 ---
 with tab3:
     c1, c2 = st.columns(2)
     with c1: pa, aa = st.selectbox("Sito A", ["Cremona", "Mantova", "Piacenza"], key="pa"), st.radio("Amm. A", ["Sì", "No"], key="aa")
@@ -171,7 +166,6 @@ with tab3:
         df_snapshot3 = pd.concat([dfa[dfa['Scenario_Esteso'] == scen3], dfb[dfb['Scenario_Esteso'] == scen3]])
         val_2026_A = dfa[(dfa['Rotazione'] == rot3) & (dfa['Scenario_Esteso'] == base_n) & (dfa['Mese_Progressivo'] == 61)]['total_soc'].values[0]
         val_2026_B = dfb[(dfb['Rotazione'] == rot3) & (dfb['Scenario_Esteso'] == base_n) & (dfb['Mese_Progressivo'] == 61)]['total_soc'].values[0]
-
         anim3 = []
         for m in range(1, 118, 4):
             for (df, lbl) in [(dfa, f"{pa} ({aa})"), (dfb, f"{pb} ({ab})")]:

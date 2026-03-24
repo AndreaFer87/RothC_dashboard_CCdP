@@ -4,7 +4,7 @@ import plotly.express as px
 
 st.set_page_config(page_title="Casalasco Decarb - Pro", layout="wide")
 
-# --- CSS PER TESTI GRANDI ---
+# --- CSS PER TESTI GRANDI E PULIZIA ---
 st.markdown("""
     <style>
     .stSelectbox label, .stRadio label, .stMultiSelect label { font-size: 20px !important; font-weight: bold !important; color: #1E3A8A; }
@@ -40,23 +40,28 @@ def load_data(provincia, scelta_amm):
         return df
     except: return None
 
-# Funzione per pulire il layout Plotly (rimuove slider, fissa assi e aggiunge linea 2026)
-def apply_clean_layout(fig, title, baseline_name):
+# --- FUNZIONE LAYOUT PULITO CON ASSE Y DINAMICO ---
+def apply_final_layout(fig, df_visualizzato, title, baseline_name):
+    # Calcolo dinamico dei limiti Y basato sui dati correnti
+    y_min = df_visualizzato['total_soc'].min() * 0.99
+    y_max = df_visualizzato['total_soc'].max() * 1.01
     split_date = pd.to_datetime("2026-01-01")
+    
     fig.update_layout(
         title=title,
-        xaxis=dict(range=[pd.to_datetime("2021-01-01"), pd.to_datetime("2031-01-01")]),
-        sliders=[], # Rimuove esplicitamente lo slider
+        xaxis=dict(range=[pd.to_datetime("2021-01-01"), pd.to_datetime("2031-01-01")], fixedrange=True),
+        yaxis=dict(range=[y_min, y_max], title="Stock di C (ton/ha)"),
+        sliders=[], # Rimuove lo slider
         updatemenus=[dict(
-            type="buttons", showactive=False, x=0, y=-0.15,
-            buttons=[dict(label="▶ AVVIA SIMULAZIONE", method="animate", args=[None, {"frame": {"duration": 40, "redraw": False}, "fromcurrent": True}])]
+            type="buttons", showactive=False, x=0, y=-0.12,
+            buttons=[dict(label="▶ AVVIA SIMULAZIONE", method="animate", 
+                          args=[None, {"frame": {"duration": 40, "redraw": False}, "fromcurrent": True}])]
         )]
     )
-    # Linea di demarcazione 2026
+    # Linea 2026
     fig.add_shape(type="line", x0=split_date, x1=split_date, y0=0, y1=1, yref="paper", line=dict(color="Black", width=2, dash="dash"))
-    fig.add_annotation(x=split_date, y=1.05, yref="paper", text="Proiezione Futura (2026)", showarrow=False, font=dict(color="Black"))
     # Spessore Baseline
-    fig.update_traces(line=dict(width=3), selector=dict(name=baseline_name))
+    fig.update_traces(line=dict(width=4), selector=dict(name=baseline_name))
     return fig
 
 st.title("🌱 Dashboard Decarbonizzazione Casalasco")
@@ -70,22 +75,32 @@ with tab1:
     df1 = load_data(p1, a1)
     if df1 is not None:
         with c3: rot1 = st.selectbox("🚜 Rotazione", df1['Rotazione'].unique(), key="rot1")
-        df1_r = df1[df1['Rotazione'] == rot1].copy()
-        scen_multi = st.multiselect("✨ Seleziona Scenari", [s for s in df1_r['Scenario_Esteso'].unique() if s != "Gestione Tradizionale (Baseline)"], key="m1")
+        df1_filtered = df1[df1['Rotazione'] == rot1].copy()
         
-        if scen_multi:
+        base_n = "Gestione Tradizionale (Baseline)"
+        scen_opz = [s for s in df1_filtered['Scenario_Esteso'].unique() if s != base_n]
+        scen_scelti = st.multiselect("✨ Seleziona Scenari", scen_opz, key="m1")
+        
+        if scen_scelti:
+            targets = scen_scelti + [base_n]
+            # Filtriamo i dati globali per calcolare l'asse Y corretto
+            df_snapshot = df1_filtered[df1_filtered['Scenario_Esteso'].isin(targets)]
+            
             animation_list = []
-            targets = scen_multi + ["Gestione Tradizionale (Baseline)"]
             for m in range(1, 121, 4):
                 for s in targets:
-                    temp = df1_r[(df1_r['Scenario_Esteso'] == ("Gestione Tradizionale (Baseline)" if m <= 60 else s)) & (df1_r['Mese_Progressivo'] <= m)].copy()
+                    # Logica staffetta: fino al 2026 usa dati baseline, poi dati reali dello scenario
+                    source_scen = base_n if m <= 60 else s
+                    temp = df1_filtered[(df1_filtered['Scenario_Esteso'] == source_scen) & (df1_filtered['Mese_Progressivo'] <= m)].copy()
                     temp['Scenario_Visualizzato'] = s
                     temp['Frame'] = m
                     animation_list.append(temp)
-            fig1 = px.line(pd.concat(animation_list), x='Data', y='total_soc', color='Scenario_Visualizzato', animation_frame='Frame', 
-                           color_discrete_map={"Gestione Tradizionale (Baseline)": "#0000FF"}, template="plotly_white")
-            fig1 = apply_clean_layout(fig1, f"Analisi Multi-Scenario - {p1}", "Gestione Tradizionale (Baseline)")
-            st.plotly_chart(fig1, use_container_width=True)
+            
+            fig1 = px.line(pd.concat(animation_list), x='Data', y='total_soc', color='Scenario_Visualizzato', 
+                           animation_frame='Frame', color_discrete_map={base_n: "#0000FF"}, template="plotly_white")
+            
+            fig1 = apply_final_layout(fig1, df_snapshot, f"Analisi Scenari - {p1}", base_n)
+            st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 
 # --- LIVELLO 2 ---
 with tab2:
@@ -95,47 +110,55 @@ with tab2:
     if df_si is not None and df_no is not None:
         c1, c2 = st.columns(2)
         with c1: rot2 = st.selectbox("🚜 Rotazione", df_si['Rotazione'].unique(), key="rot2")
-        with c2: scen2 = st.selectbox("✨ Scenario da testare", [s for s in df_si['Scenario_Esteso'].unique() if "Baseline" not in s], key="scen2")
+        with c2: scen2 = st.selectbox("✨ Scenario Rigenerativo", [s for s in df_si['Scenario_Esteso'].unique() if "Baseline" not in s], key="scen2")
         
         label_amm = {"Cremona": "Digestato", "Mantova": "Slurry", "Piacenza": "Letame"}[p2]
-        targets = {f"{scen2} (+ {label_amm})": (df_si, scen2), f"{scen2} (No Amm.)": (df_no, scen2), "Baseline (Rif. Blu)": (df_si, "Gestione Tradizionale (Baseline)")}
+        # Definiamo i 3 protagonisti
+        targets = {f"{scen2} (+ {label_amm})": (df_si, scen2), f"{scen2} (No Amm.)": (df_no, scen2), "Baseline (Rif. Blu)": (df_si, base_n)}
         
         anim2 = []
+        # Per asse Y: raccogliamo i dati finali di questi 3 scenari
+        df_snapshot2 = pd.concat([df_si[df_si['Scenario_Esteso'].isin([scen2, base_n])], df_no[df_no['Scenario_Esteso'] == scen2]])
+
         for m in range(1, 121, 4):
-            for name, (source_df, source_scen) in targets.items():
-                d_r = source_df[source_df['Rotazione'] == rot2]
-                temp = d_r[(d_r['Scenario_Esteso'] == ("Gestione Tradizionale (Baseline)" if m <= 60 else source_scen)) & (d_r['Mese_Progressivo'] <= m)].copy()
+            for name, (src_df, src_scen) in targets.items():
+                d_r = src_df[src_df['Rotazione'] == rot2]
+                source_scen_now = "Gestione Tradizionale (Baseline)" if m <= 60 else src_scen
+                temp = d_r[(d_r['Scenario_Esteso'] == source_scen_now) & (d_r['Mese_Progressivo'] <= m)].copy()
                 temp['Legenda'] = name
                 temp['Frame'] = m
                 anim2.append(temp)
         
         fig2 = px.line(pd.concat(anim2), x='Data', y='total_soc', color='Legenda', animation_frame='Frame',
                        color_discrete_map={"Baseline (Rif. Blu)": "#0000FF"}, template="plotly_white")
-        fig2 = apply_clean_layout(fig2, f"Impatto {label_amm} su {scen2}", "Baseline (Rif. Blu)")
-        st.plotly_chart(fig2, use_container_width=True)
+        fig2 = apply_final_layout(fig2, df_snapshot2, f"Confronto Ammendante - {p2}", "Baseline (Rif. Blu)")
+        st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
 
 # --- LIVELLO 3 ---
 with tab3:
     c1, c2 = st.columns(2)
     with c1:
-        pa, aa = st.selectbox("Provincia A", ["Cremona", "Mantova", "Piacenza"], key="pa"), st.radio("Ammendante A", ["Sì", "No"], key="aa")
+        pa, aa = st.selectbox("Sito A", ["Cremona", "Mantova", "Piacenza"], key="pa"), st.radio("Amm. A", ["Sì", "No"], key="aa")
     with c2:
-        pb, ab = st.selectbox("Provincia B", ["Cremona", "Mantova", "Piacenza"], index=1, key="pb"), st.radio("Ammendante B", ["Sì", "No"], key="ab")
+        pb, ab = st.selectbox("Sito B", ["Cremona", "Mantova", "Piacenza"], index=1, key="pb"), st.radio("Amm. B", ["Sì", "No"], key="ab")
     
     dfa, dfb = load_data(pa, aa), load_data(pb, ab)
     if dfa is not None and dfb is not None:
         rot3 = st.selectbox("🚜 Rotazione Comune", list(set(dfa['Rotazione']) & set(dfb['Rotazione'])), key="rot3")
-        scen3 = st.selectbox("✨ Scenario Confronto", [s for s in dfa['Scenario_Esteso'].unique() if "Baseline" not in s], key="scen3")
+        scen3 = st.selectbox("✨ Scenario da confrontare", [s for s in dfa['Scenario_Esteso'].unique() if "Baseline" not in s], key="scen3")
+        
+        df_snapshot3 = pd.concat([dfa[dfa['Scenario_Esteso'] == scen3], dfb[dfb['Scenario_Esteso'] == scen3]])
         
         anim3 = []
         for m in range(1, 121, 4):
             for (df, lbl) in [(dfa, f"{pa} ({aa})"), (dfb, f"{pb} ({ab})")]:
                 d_r = df[df['Rotazione'] == rot3]
-                temp = d_r[(d_r['Scenario_Esteso'] == ("Gestione Tradizionale (Baseline)" if m <= 60 else scen3)) & (d_r['Mese_Progressivo'] <= m)].copy()
+                s_now = "Gestione Tradizionale (Baseline)" if m <= 60 else scen3
+                temp = d_r[(d_r['Scenario_Esteso'] == s_now) & (d_r['Mese_Progressivo'] <= m)].copy()
                 temp['Sito'] = lbl
                 temp['Frame'] = m
                 anim3.append(temp)
         
         fig3 = px.line(pd.concat(anim3), x='Data', y='total_soc', color='Sito', animation_frame='Frame', template="plotly_white")
-        fig3 = apply_clean_layout(fig3, "Confronto Territoriale", "NESSUNA")
-        st.plotly_chart(fig3, use_container_width=True)
+        fig3 = apply_final_layout(fig3, df_snapshot3, "Confronto Territoriale", "NESSUNA")
+        st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': False})

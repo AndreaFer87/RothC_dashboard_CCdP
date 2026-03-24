@@ -2,37 +2,27 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# Configurazione Pagina
 st.set_page_config(page_title="Casalasco Decarb - Pro", layout="wide")
 
 # --- CSS PER AUMENTARE LE DIMENSIONI DEI FONT ---
 st.markdown("""
     <style>
-    /* Titolo principale */
-    .main-title {
-        font-size: 36px !important;
-        font-weight: bold !important;
-        color: #1E3A8A;
-        margin-bottom: 30px !important;
-    }
     /* Font dei selettori (Selectbox, Radio, Multiselect) */
     .stSelectbox label, .stRadio label, .stMultiSelect label {
-        font-size: 20px !important;
+        font-size: 22px !important;
         font-weight: bold !important;
     }
     /* Font dei Tab */
     .stTabs [data-baseweb="tab"] p {
-        font-size: 22px !important;
+        font-size: 24px !important;
         font-weight: bold !important;
     }
-    /* Spazio contenitore */
-    .block-container {
-        padding-top: 2rem !important;
+    /* Testo generale e widget */
+    .stMarkdown p {
+        font-size: 18px !important;
     }
     </style>
     """, unsafe_allow_html=True)
-
-st.markdown('<p class="main-title">🌱 Simulazione sequestro C con modello RothC - Agricoltura Rigenerativa</p>', unsafe_allow_html=True)
 
 # --- 1. MAPPATURA E COSTANTI ---
 MAPPING = {
@@ -64,6 +54,7 @@ def load_data(provincia, scelta_amm):
         df['Scenario_Esteso'] = df['Scenario'].apply(decode)
         return df
     except Exception as e:
+        st.error(f"Errore caricamento file {file_name}: {e}")
         return None
 
 def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferimento):
@@ -73,27 +64,16 @@ def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferim
     target_date = pd.to_datetime("2030-09-01")
     
     fig.update_layout(
-        height=700, # Aumentato per migliore visibilità verticale
-        margin=dict(l=40, r=40, t=80, b=100), # Margini ampi
-        title=dict(text=title, font=dict(size=26)), # Titolo grafico più grande
-        font=dict(size=16), # Font generale degli assi e legenda
-        xaxis=dict(
-            range=[pd.to_datetime("2021-01-01"), pd.to_datetime("2031-01-01")], 
-            fixedrange=True, showgrid=False,
-            title=dict(font=dict(size=20)),
-            tickfont=dict(size=16)
-        ), 
-        yaxis=dict(
-            range=[y_min, y_max], 
-            title="Stock di C (ton/ha)", 
-            titlefont=dict(size=20),
-            tickfont=dict(size=16),
-            showgrid=False
-        ),
+        height=700,
+        title=dict(text=title, font=dict(size=24)),
+        xaxis=dict(range=[pd.to_datetime("2021-01-01"), pd.to_datetime("2031-01-01")], 
+                  fixedrange=True, showgrid=False, tickfont=dict(size=16)), 
+        yaxis=dict(range=[y_min, y_max], title="Stock di C (ton/ha)", 
+                  showgrid=False, titlefont=dict(size=20), tickfont=dict(size=16)),
         legend=dict(font=dict(size=16)),
         sliders=[], 
         updatemenus=[dict(
-            type="buttons", showactive=False, x=0, y=-0.18,
+            type="buttons", showactive=False, x=0, y=-0.15,
             buttons=[dict(label="▶ AVVIA SIMULAZIONE", method="animate", 
                           args=[None, {"frame": {"duration": 40, "redraw": False}, "fromcurrent": True}])]
         )]
@@ -101,7 +81,7 @@ def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferim
     
     for val, label in punti_riferimento:
         fig.add_trace(px.scatter(x=[target_date], y=[val]).data[0])
-        fig.data[-1].update(mode='markers', marker=dict(color='black', size=15, symbol='circle'), 
+        fig.data[-1].update(mode='markers', marker=dict(color='black', size=14, symbol='circle'), 
                             name=f"Rif. 2026: {label}", showlegend=True)
     
     fig.add_shape(type="line", x0=split_date, x1=split_date, y0=0, y1=1, yref="paper", 
@@ -121,10 +101,9 @@ with tab1:
     if df1 is not None:
         with c3:
             rot1 = st.selectbox("🚜 Rotazione", sorted([r for r in df1['Rotazione'].unique() if "year" not in str(r).lower()]), key="rot1")
-        
         df_base_real = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == base_n)].copy()
+        
         is_piacenza_cc = (p1 == "Piacenza" and a1 == "No" and "Pomodoro - Frumento" in rot1)
-
         if is_piacenza_cc:
             st.markdown("---")
             col_cc1, col_cc2 = st.columns(2)
@@ -173,7 +152,7 @@ with tab2:
         c1, c2, c3 = st.columns(3)
         with c1: rot2 = st.selectbox("🚜 Rotazione", df_si['Rotazione'].unique(), key="rot2")
         with c2: scen2 = st.selectbox("✨ Scenario Rigenerativo", [s for s in df_si['Scenario_Esteso'].unique() if base_n not in s], key="scen2")
-        with c3: amm_base = st.radio("Ammendante nella Baseline?", ["Sì", "No"], horizontal=True)
+        with c3: amm_base = st.radio("Ammendante nella Baseline?", ["Sì", "No"], horizontal=True, key="amm_b2")
         df_base_ref = df_si if amm_base == "Sì" else df_no
         b_ref_name = "Baseline (Riferimento)"
         targets2_list = [f"{scen2} (+ Amm.)", f"{scen2} (No Amm.)", b_ref_name]
@@ -206,9 +185,9 @@ with tab3:
                 temp = df[(df['Rotazione'] == rot3) & (df['Scenario_Esteso'] == base_n) & (df['Mese_Progressivo'] <= m)].copy() if m <= 60 else df[(df['Rotazione'] == rot3) & (df['Scenario_Esteso'] == scen3) & (df['Mese_Progressivo'] <= m)].copy()
                 temp['Sito'], temp['Frame'] = lbl, m
                 anim3.append(temp)
-        df_anim3 = pd.concat(anim3)
         v26A = dfa[(dfa['Rotazione'] == rot3) & (dfa['Scenario_Esteso'] == base_n) & (dfa['Mese_Progressivo'] == 61)]['total_soc'].values[0]
         v26B = dfb[(dfb['Rotazione'] == rot3) & (dfb['Scenario_Esteso'] == base_n) & (dfb['Mese_Progressivo'] == 61)]['total_soc'].values[0]
+        df_anim3 = pd.concat(anim3)
         fig3 = px.line(df_anim3, x='Data', y='total_soc', color='Sito', animation_frame='Frame', template="plotly_white")
         fig3 = apply_final_layout(fig3, df_anim3, "Confronto Territoriale", "NESSUNA", [(v26A, pa), (v26B, pb)])
         st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': False})

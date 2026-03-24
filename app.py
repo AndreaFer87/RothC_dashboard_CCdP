@@ -86,17 +86,22 @@ with tab1:
         
         df_base_real = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == base_n)].copy()
         
-        final_targets = []
-        df_merged_scenarios = pd.DataFrame()
-
+        # LOGICA PIACENZA CC
         is_piacenza_cc = (p1 == "Piacenza" and a1 == "No" and "Pomodoro - Frumento" in rot1)
 
         if is_piacenza_cc:
             st.markdown("---")
-            modalita_cc = st.radio("🧐 **Vuoi analizzare l'effetto della frequenza di coltivazione delle Cover Crop?**",
-                                   ["No, simulazione standard", "Sì, confronta annate CC"], horizontal=True, key="radio_freq_cc")
+            col_cc1, col_cc2 = st.columns(2)
+            
+            with col_cc1:
+                modalita_cc = st.radio(
+                    "🧐 **Analisi Frequenza Cover Crop?**",
+                    ["No, simulazione standard", "Sì, confronta frequenze"],
+                    horizontal=True, key="radio_freq_cc"
+                )
 
-            if modalita_cc == "Sì, confronta annate CC":
+            if modalita_cc == "Sì, confronta frequenze":
+                # 1. Scegli le frequenze (le rotazioni yearX)
                 mapping_cc = {
                     "CC Anno 1": "Pomodoro - Frumento granella 1cc year1",
                     "CC Anno 3": "Pomodoro - Frumento granella 1cc year3",
@@ -104,21 +109,33 @@ with tab1:
                     "CC Anni 1 e 3": "Pomodoro - Frumento granella 1cc year13",
                     "CC Anni 1 e 5": "Pomodoro - Frumento granella 1cc year15"
                 }
-                scelte_cc = st.multiselect("📅 Seleziona frequenza Cover Crop", list(mapping_cc.keys()), key="m_cc_piacenza")
-                if scelte_cc:
-                    final_targets = scelte_cc + [base_n] # Baseline per ultima
+                
+                with col_cc2:
+                    # 2. Scegli lo scenario rigenerativo da applicare a quelle frequenze
+                    # Prendiamo gli scenari disponibili in una delle rotazioni speciali
+                    sample_rot = mapping_cc["CC Anno 1"]
+                    scenari_speciali = [s for s in df1[df1['Rotazione'] == sample_rot]['Scenario_Esteso'].unique() if s != base_n]
+                    scen_cc_scelto = st.selectbox("✨ Seleziona Pratica da testare", scenari_speciali, key="scen_cc_piac")
+                
+                scelte_freq = st.multiselect("📅 Seleziona frequenze da confrontare", list(mapping_cc.keys()), key="m_freq_piacenza")
+                
+                if scelte_freq:
+                    final_targets = scelte_freq + [base_n]
                     temp_list = []
                     for s in final_targets:
                         if s == base_n:
                             u = df_base_real.copy()
                         else:
                             rot_spec = mapping_cc[s]
-                            df_spec = df1[(df1['Rotazione'] == rot_spec) & (df1['Scenario'].str.contains("CC", na=False))].copy()
-                            u = pd.concat([df_base_real[df_base_real['Mese_Progressivo'] <= 60], df_spec[df_spec['Mese_Progressivo'] > 60]])
+                            # Filtriamo per la rotazione specifica AND lo scenario scelto
+                            df_spec = df1[(df1['Rotazione'] == rot_spec) & (df1['Scenario_Esteso'] == scen_cc_scelto)].copy()
+                            u = pd.concat([df_base_real[df_base_real['Mese_Progressivo'] <= 60], 
+                                          df_spec[df_spec['Mese_Progressivo'] > 60]])
                         u['Legenda'] = s
                         temp_list.append(u)
                     df_merged_scenarios = pd.concat(temp_list)
             else:
+                # Simulazione Standard
                 scen_scelti = st.multiselect("✨ Scenari Standard", [s for s in df1[df1['Rotazione'] == rot1]['Scenario_Esteso'].unique() if s != base_n], key="m1_std")
                 final_targets = scen_scelti + [base_n]
                 temp_list = []
@@ -129,6 +146,7 @@ with tab1:
                     temp_list.append(u)
                 df_merged_scenarios = pd.concat(temp_list)
         else:
+            # Caso normale (Cremona, Mantova o Piacenza Manure)
             scen_scelti = st.multiselect("✨ Seleziona Scenari", [s for s in df1[df1['Rotazione'] == rot1]['Scenario_Esteso'].unique() if s != base_n], key="m1_gen")
             final_targets = scen_scelti + [base_n]
             temp_list = []
@@ -139,30 +157,26 @@ with tab1:
                 temp_list.append(u)
             df_merged_scenarios = pd.concat(temp_list)
 
-        if len(final_targets) > 1:
+        # --- DISEGNO GRAFICO (Logica Baseline SOPRA) ---
+        if 'final_targets' in locals() and len(final_targets) > 1:
             val_2026 = df_base_real[df_base_real['Mese_Progressivo'] == 61]['total_soc'].values[0]
             anim_frames = []
             for m in range(1, 118, 4):
                 for s in final_targets:
-                    # STAFFETTA FORZATA: Prima del 2026, carica sempre i dati della Baseline per tutti
                     if m <= 60:
                         temp_f = df_base_real[df_base_real['Mese_Progressivo'] <= m].copy()
                     else:
                         temp_f = df_merged_scenarios[(df_merged_scenarios['Legenda'] == s) & (df_merged_scenarios['Mese_Progressivo'] <= m)].copy()
-                    temp_f['Legenda_Anim'] = s
-                    temp_f['Frame'] = m
+                    temp_f['Legenda_Anim'], temp_f['Frame'] = s, m
                     anim_frames.append(temp_f)
             
             df_anim = pd.concat(anim_frames).sort_values(['Frame', 'Mese_Progressivo'])
-            
             fig1 = px.line(df_anim, x='Data', y='total_soc', color='Legenda_Anim', 
                            animation_frame='Frame', color_discrete_map={base_n: "#0000FF"},
-                           template="plotly_white",
-                           category_orders={"Legenda_Anim": final_targets}) # Ordine: scenari poi Baseline (sopra)
+                           template="plotly_white", category_orders={"Legenda_Anim": final_targets})
             
             fig1 = apply_final_layout(fig1, df_merged_scenarios, f"Proiezione Carbonio - {p1}", base_n, [(val_2026, p1)])
             st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
-
 # --- LIVELLO 2 E 3 ---
 with tab2:
     p2 = st.selectbox("📍 Provincia", ["Cremona", "Mantova", "Piacenza"], key="p2")

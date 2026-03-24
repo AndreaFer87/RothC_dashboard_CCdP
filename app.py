@@ -1,5 +1,4 @@
 import streamlit as st
-import pd as pd
 import pandas as pd
 import plotly.express as px
 
@@ -81,9 +80,8 @@ with tab1:
         
         base_df1 = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == base_n)].copy()
         
-        # --- SICUREZZA 1 ---
         if base_df1.empty:
-            st.warning("Caricamento dati in corso o rotazione non trovata...")
+            st.warning("Caricamento dati in corso...")
             st.stop()
 
         scen_list = []
@@ -135,8 +133,6 @@ with tab1:
 
         if scen_list and targets1:
             df_m1 = pd.concat(scen_list)
-            
-            # --- SICUREZZA 2: CALCOLO V26 ---
             t26 = base_df1[base_df1['Mese_Progressivo'] >= 60]
             v26_1 = t26['total_soc'].iloc[0] if not t26.empty else base_df1['total_soc'].iloc[-1]
             

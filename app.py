@@ -29,20 +29,20 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown('<p class="main-title">🌱 Simulazione sequestro C - Agricoltura Rigenerativa</p>', unsafe_allow_html=True)
+st.markdown('<p class="main-title">🌱 Simulazione sequestro C con modello RothC - Agricoltura Rigenerativa</p>', unsafe_allow_html=True)
 
 # --- 1. MAPPATURA E COSTANTI ---
 MAPPING = {
-    "Baseline (CT)": "Gestione Tradizionale (Baseline)",
+    "Baseline (CT)": "Baseline (CT)",
     "CC (CT)": "Cover crop (CT)",
     "Res (CT)": "Residui (CT)",
-    "CC + Res (CT)": "Cover + Residui (Tradizionale)",
+    "CC + Res (CT)": "Cover + Residui (CT)",
     "MT": "Minima Lavorazione",
     "MT + Res": "Minima + Residui",
     "MT + CC": "Minima + Cover",
     "MT + CC + Res": "Minima + Cover + Residui"
 }
-base_n = "Gestione Tradizionale (Baseline)"
+base_n = "Baseline"
 
 # --- 2. FUNZIONI CORE ---
 def decode(name):
@@ -108,7 +108,7 @@ with tab1:
         is_p_cc = (p1 == "Piacenza" and a1 == "No" and "Pomodoro - Frumento" in rot1)
         if is_p_cc:
             cc_c1, cc_c2 = st.columns(2)
-            with cc_c1: m_cc = st.radio("Analisi Frequenza?", ["No", "Sì"], horizontal=True)
+            with cc_c1: m_cc = st.radio("Analisi effetto frequenza Cover crop ?", ["No", "Sì"], horizontal=True)
             if m_cc == "Sì":
                 maps = {"CC Anno 1": "year1", "CC Anno 3": "year3", "CC Anno 5": "year5", "CC Anni 1-3": "year13", "CC Anni 1-5": "year15"}
                 with cc_c2: scen_cc = st.selectbox("Pratica", [s for s in df1['Scenario_Esteso'].unique() if s != base_n])
@@ -144,7 +144,7 @@ with tab2:
         c2a, c2b = st.columns(2)
         with c2a: rot2 = st.selectbox("🚜 Rotazione", df_si['Rotazione'].unique(), key="rot2")
         with c2b: scen2 = st.selectbox("✨ Scenario", [s for s in df_si['Scenario_Esteso'].unique() if base_n not in s], key="scen2")
-        amm_b = st.radio("Ammendante in Baseline?", ["Sì", "No"], horizontal=True, key="amm_b2")
+        amm_b = st.radio("Ammendante Organico in Baseline?", ["Sì", "No"], horizontal=True, key="amm_b2")
         df_br = df_si if amm_b == "Sì" else df_no
         l_ref = "Baseline (Riferimento)"
         t2 = [f"{scen2} (+ Amm.)", f"{scen2} (No Amm.)", l_ref]

@@ -64,7 +64,7 @@ def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferim
                   line=dict(color="Red", width=2, dash="dot"))
     
     # Baseline Blu e più spessa
-    fig.update_traces(line=dict(width=4), selector=dict(name=baseline_name))
+    fig.update_traces(line=dict(width=2.5), selector=dict(name=baseline_name))
     return fig
 
 # --- 3. DEFINIZIONE TAB ---

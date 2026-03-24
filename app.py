@@ -5,17 +5,15 @@ import plotly.express as px
 st.set_page_config(page_title="Casalasco Decarb - Pro", layout="wide")
 
 # --- PARAMETRO UNICO PER IL FONT ---
-FONT_SIZE = 20  # Cambia questo numero per aumentare/diminuire tutto il testo
+FONT_SIZE = 20 
 
 # --- CSS PER FONT WIDGET E TAB ---
 st.markdown(f"""
     <style>
-    /* Font dei selettori e label */
     .stSelectbox label, .stRadio label, .stMultiSelect label, .stTabs [data-baseweb="tab"] p {{
         font-size: {FONT_SIZE}px !important;
         font-weight: bold !important;
     }}
-    /* Testo generale */
     .stMarkdown p {{
         font-size: {FONT_SIZE-2}px !important;
     }}
@@ -52,7 +50,6 @@ def load_data(provincia, scelta_amm):
         df['Scenario_Esteso'] = df['Scenario'].apply(decode)
         return df
     except Exception as e:
-        st.error(f"Errore caricamento file {file_name}: {e}")
         return None
 
 def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferimento):
@@ -62,7 +59,8 @@ def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferim
     target_date = pd.to_datetime("2030-09-01")
     
     fig.update_layout(
-        height=750,  # Grafici rimpiazzati con dimensione grande
+        height=700,
+        margin=dict(l=10, r=10, t=50, b=50), # Ridotti margini per allungare in orizzontale
         title=dict(text=title, font=dict(size=FONT_SIZE+4)),
         xaxis=dict(
             range=[pd.to_datetime("2021-01-01"), pd.to_datetime("2031-01-01")], 
@@ -83,13 +81,16 @@ def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferim
     
     for val, label in punti_riferimento:
         fig.add_trace(px.scatter(x=[target_date], y=[val]).data[0])
-        fig.data[-1].update(mode='markers', marker=dict(color='black', size=14, symbol='circle'), 
+        fig.data[-1].update(mode='markers', marker=dict(color='black', size=12, symbol='circle'), 
                             name=f"Rif. 2026: {label}", showlegend=True)
     
     fig.add_shape(type="line", x0=split_date, x1=split_date, y0=0, y1=1, yref="paper", 
-                  line=dict(color="Red", width=3, dash="dot"))
+                  line=dict(color="Red", width=2, dash="dot"))
     
-    fig.update_traces(line=dict(width=4), selector=dict(name=baseline_name))
+    # --- SPESSORE LINEE ---
+    fig.update_traces(line=dict(width=2.5)) # Spessore standard per tutte
+    fig.update_traces(line=dict(width=2.0), selector=dict(name=baseline_name)) # Baseline più sottile
+    
     return fig
 
 # --- 3. DEFINIZIONE TAB ---
@@ -99,7 +100,6 @@ with tab1:
     c1, c2, c3 = st.columns(3)
     with c1: p1 = st.selectbox("📍 Provincia", ["Cremona", "Mantova", "Piacenza"], key="p1")
     with c2: a1 = st.radio(f"Ammendante ({p1})?", ["Sì", "No"], horizontal=True, key="a1")
-    
     df1 = load_data(p1, a1)
     if df1 is not None:
         with c3:
@@ -121,10 +121,8 @@ with tab1:
                     final_targets = scelte_freq + [base_n]
                     temp_list = []
                     for s in final_targets:
-                        if s == base_n: 
-                            u = df_base_real.copy()
+                        if s == base_n: u = df_base_real.copy()
                         else:
-                            # Filtro corretto per trovare la rotazione che contiene la stringa yearX
                             rot_full = [r for r in df1['Rotazione'].unique() if mapping_cc[s] in str(r)][0]
                             df_spec = df1[(df1['Rotazione'] == rot_full) & (df1['Scenario_Esteso'] == scen_cc_scelto)].copy()
                             u = pd.concat([df_base_real[df_base_real['Mese_Progressivo'] <= 60], df_spec[df_spec['Mese_Progressivo'] > 60]])
@@ -173,10 +171,7 @@ with tab2:
             for t in targets2_list:
                 src = df_si if "+ Amm." in t else (df_no if "No Amm." in t else df_base_ref)
                 s_name = scen2 if t != b_ref_name else base_n
-                if m <= 60:
-                    temp = df_base_ref[(df_base_ref['Rotazione'] == rot2) & (df_base_ref['Scenario_Esteso'] == base_n) & (df_base_ref['Mese_Progressivo'] <= m)].copy()
-                else:
-                    temp = src[(src['Rotazione'] == rot2) & (src['Scenario_Esteso'] == s_name) & (src['Mese_Progressivo'] <= m)].copy()
+                temp = df_base_ref[(df_base_ref['Rotazione'] == rot2) & (df_base_ref['Scenario_Esteso'] == base_n) & (df_base_ref['Mese_Progressivo'] <= m)].copy() if m <= 60 else src[(src['Rotazione'] == rot2) & (src['Scenario_Esteso'] == s_name) & (src['Mese_Progressivo'] <= m)].copy()
                 temp['Legenda'], temp['Frame'] = t, m
                 anim2.append(temp)
         
@@ -198,10 +193,7 @@ with tab3:
         anim3 = []
         for m in range(1, 118, 4):
             for (df, lbl) in [(dfa, lbl_a), (dfb, lbl_b)]:
-                if m <= 60:
-                    temp = df[(df['Rotazione'] == rot3) & (df['Scenario_Esteso'] == base_n) & (df['Mese_Progressivo'] <= m)].copy()
-                else:
-                    temp = df[(df['Rotazione'] == rot3) & (df['Scenario_Esteso'] == scen3) & (df['Mese_Progressivo'] <= m)].copy()
+                temp = df[(df['Rotazione'] == rot3) & (df['Scenario_Esteso'] == base_n) & (df['Mese_Progressivo'] <= m)].copy() if m <= 60 else df[(df['Rotazione'] == rot3) & (df['Scenario_Esteso'] == scen3) & (df['Mese_Progressivo'] <= m)].copy()
                 temp['Sito'], temp['Frame'] = lbl, m
                 anim3.append(temp)
         

@@ -17,7 +17,7 @@ st.markdown("""
         font-size: 24px !important;
         font-weight: bold !important;
     }
-    /* Testo generale e widget */
+    /* Testo generale */
     .stMarkdown p {
         font-size: 18px !important;
     }
@@ -44,9 +44,9 @@ def decode(name):
 
 @st.cache_data
 def load_data(provincia, scelta_amm):
-    suffix = {"Cremona": "digestate", "Mantova": "slurry", "Piacenza": "manure"}[provincia]
-    file_name = f"{provincia}_{suffix}.xlsx" if scelta_amm == "Sì" else f"{provincia}_NO{suffix}.xlsx"
     try:
+        suffix = {"Cremona": "digestate", "Mantova": "slurry", "Piacenza": "manure"}[provincia]
+        file_name = f"{provincia}_{suffix}.xlsx" if scelta_amm == "Sì" else f"{provincia}_NO{suffix}.xlsx"
         df = pd.read_excel(file_name)
         df.columns = df.columns.str.strip()
         start_date = pd.to_datetime("2021-01-01")
@@ -54,7 +54,6 @@ def load_data(provincia, scelta_amm):
         df['Scenario_Esteso'] = df['Scenario'].apply(decode)
         return df
     except Exception as e:
-        st.error(f"Errore caricamento file {file_name}: {e}")
         return None
 
 def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferimento):
@@ -63,14 +62,15 @@ def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferim
     split_date = pd.to_datetime("2026-01-01")
     target_date = pd.to_datetime("2030-09-01")
     
+    # Configurazione layout con correzione per ValueError
     fig.update_layout(
         height=700,
-        title=dict(text=title, font=dict(size=24)),
-        xaxis=dict(range=[pd.to_datetime("2021-01-01"), pd.to_datetime("2031-01-01")], 
-                  fixedrange=True, showgrid=False, tickfont=dict(size=16)), 
-        yaxis=dict(range=[y_min, y_max], title="Stock di C (ton/ha)", 
-                  showgrid=False, titlefont=dict(size=20), tickfont=dict(size=16)),
-        legend=dict(font=dict(size=16)),
+        title={'text': title, 'font': {'size': 24}},
+        xaxis={'range': [pd.to_datetime("2021-01-01"), pd.to_datetime("2031-01-01")], 
+               'fixedrange': True, 'showgrid': False, 'tickfont': {'size': 16}},
+        yaxis={'range': [y_min, y_max], 'title': {'text': "Stock di C (ton/ha)", 'font': {'size': 20}}, 
+               'showgrid': False, 'tickfont': {'size': 16}},
+        legend={'font': {'size': 16}},
         sliders=[], 
         updatemenus=[dict(
             type="buttons", showactive=False, x=0, y=-0.15,

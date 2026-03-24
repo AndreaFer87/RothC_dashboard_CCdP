@@ -41,11 +41,13 @@ def load_data(provincia, scelta_amm):
     except: return None
 
 # --- FUNZIONE LAYOUT PULITO ---
-def apply_final_layout(fig, df_visualizzato, title, baseline_name, val_riferimento_2026):
+def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferimento):
+    """
+    punti_riferimento: lista di tuple (valore_soc, nome_legenda)
+    """
     y_min = df_visualizzato['total_soc'].min() * 0.99
     y_max = df_visualizzato['total_soc'].max() * 1.01
     split_date = pd.to_datetime("2026-01-01")
-    # Il pallino viene messo a Settembre 2030 (Mese 117)
     target_date = pd.to_datetime("2030-09-01")
     
     fig.update_layout(
@@ -61,12 +63,13 @@ def apply_final_layout(fig, df_visualizzato, title, baseline_name, val_riferimen
         )]
     )
     
-    # 1. PALLINO NERO A SETTEMBRE 2030
-    fig.add_trace(px.scatter(x=[target_date], y=[val_riferimento_2026]).data[0])
-    fig.data[-1].update(mode='markers', marker=dict(color='black', size=12, symbol='circle'), 
-                        name='Riferimento 2026', showlegend=True)
+    # AGGIUNTA PUNTI NERI (uno o più)
+    for val, label in punti_riferimento:
+        fig.add_trace(px.scatter(x=[target_date], y=[val]).data[0])
+        fig.data[-1].update(mode='markers', marker=dict(color='black', size=12, symbol='circle'), 
+                            name=f"Rif. 2026: {label}", showlegend=True)
     
-    # 2. Linea di demarcazione verticale 2026
+    # Linea verticale 2026
     fig.add_shape(type="line", x0=split_date, x1=split_date, y0=0, y1=1, yref="paper", 
                   line=dict(color="LightGray", width=1, dash="dot"))
     
@@ -95,7 +98,7 @@ with tab1:
             val_2026 = df1_f[(df1_f['Scenario_Esteso'] == base_n) & (df1_f['Mese_Progressivo'] == 61)]['total_soc'].values[0]
             
             anim1 = []
-            for m in range(1, 118, 4): # Fino a 117 (Settembre 2030)
+            for m in range(1, 118, 4):
                 for s in targets:
                     source = base_n if m <= 60 else s
                     temp = df1_f[(df1_f['Scenario_Esteso'] == source) & (df1_f['Mese_Progressivo'] <= m)].copy()
@@ -103,7 +106,7 @@ with tab1:
                     anim1.append(temp)
             fig1 = px.line(pd.concat(anim1), x='Data', y='total_soc', color='Scenario_Visualizzato', 
                            animation_frame='Frame', color_discrete_map={base_n: "#0000FF"}, template="plotly_white")
-            fig1 = apply_final_layout(fig1, df_snapshot, f"Analisi Scenari - {p1}", base_n, val_2026)
+            fig1 = apply_final_layout(fig1, df_snapshot, f"Analisi Scenari - {p1}", base_n, [(val_2026, p1)])
             st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 
 # --- LIVELLO 2 ---
@@ -116,35 +119,26 @@ with tab2:
         with c2: scen2 = st.selectbox("✨ Scenario Rigenerativo", [s for s in df_si['Scenario_Esteso'].unique() if "Baseline" not in s], key="scen2")
         with c3: amm_base = st.radio("Ammendante nella Baseline?", ["Sì", "No"], horizontal=True, key="amm_base")
         
-        label = {"Cremona": "Digestato", "Mantova": "Slurry", "Piacenza": "Letame"}[p2]
+        label_amm = {"Cremona": "Digestato", "Mantova": "Slurry", "Piacenza": "Letame"}[p2]
         df_base_ref = df_si if amm_base == "Sì" else df_no
         
-        targets2 = {
-            f"{scen2} (+ {label})": (df_si, scen2),
-            f"{scen2} (No Amm.)": (df_no, scen2),
-            "Baseline (Riferimento)": (df_base_ref, base_n)
-        }
+        targets2 = {f"{scen2} (+ {label_amm})": (df_si, scen2), f"{scen2} (No Amm.)": (df_no, scen2), "Baseline (Riferimento)": (df_base_ref, base_n)}
+        df_snapshot2 = pd.concat([df_si[df_si['Scenario_Esteso'] == scen2], df_no[df_no['Scenario_Esteso'] == scen2], df_base_ref[df_base_ref['Scenario_Esteso'] == base_n]])
         
-        df_snapshot2 = pd.concat([df_si[df_si['Scenario_Esteso'] == scen2], 
-                                  df_no[df_no['Scenario_Esteso'] == scen2], 
-                                  df_base_ref[df_base_ref['Scenario_Esteso'] == base_n]])
-        
-        # Valore 2026 dalla baseline scelta
         val_2026_l2 = df_base_ref[(df_base_ref['Rotazione'] == rot2) & (df_base_ref['Scenario_Esteso'] == base_n) & (df_base_ref['Mese_Progressivo'] == 61)]['total_soc'].values[0]
 
         anim2 = []
         for m in range(1, 118, 4):
             for name, (src, s_name) in targets2.items():
                 d_r = src[src['Rotazione'] == rot2]
-                # Nota: la simulazione "staffetta" parte sempre dalla baseline specifica dello scenario fino al 2026
-                source_scen_now = base_n if m <= 60 else s_name
-                temp = d_r[(d_r['Scenario_Esteso'] == source_scen_now) & (d_r['Mese_Progressivo'] <= m)].copy()
+                s_now = base_n if m <= 60 else s_name
+                temp = d_r[(d_r['Scenario_Esteso'] == s_now) & (d_r['Mese_Progressivo'] <= m)].copy()
                 temp['Legenda'], temp['Frame'] = name, m
                 anim2.append(temp)
         
         fig2 = px.line(pd.concat(anim2), x='Data', y='total_soc', color='Legenda', animation_frame='Frame',
                        color_discrete_map={"Baseline (Riferimento)": "#0000FF"}, template="plotly_white")
-        fig2 = apply_final_layout(fig2, df_snapshot2, f"Impatto Ammendante - {p2}", "Baseline (Riferimento)", val_2026_l2)
+        fig2 = apply_final_layout(fig2, df_snapshot2, f"Impatto Ammendante - {p2}", "Baseline (Riferimento)", [(val_2026_l2, "Base")])
         st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
 
 # --- LIVELLO 3 ---
@@ -158,8 +152,10 @@ with tab3:
         scen3 = st.selectbox("✨ Scenario da confrontare", [s for s in dfa['Scenario_Esteso'].unique() if "Baseline" not in s], key="scen3")
         
         df_snapshot3 = pd.concat([dfa[dfa['Scenario_Esteso'] == scen3], dfb[dfb['Scenario_Esteso'] == scen3]])
-        # Usiamo come riferimento 2026 la baseline del Sito A (scelta arbitraria di confronto)
-        val_2026_l3 = dfa[(dfa['Rotazione'] == rot3) & (dfa['Scenario_Esteso'] == base_n) & (dfa['Mese_Progressivo'] == 61)]['total_soc'].values[0]
+        
+        # CALCOLO DUE PUNTI DI RIFERIMENTO (A e B)
+        val_2026_A = dfa[(dfa['Rotazione'] == rot3) & (dfa['Scenario_Esteso'] == base_n) & (dfa['Mese_Progressivo'] == 61)]['total_soc'].values[0]
+        val_2026_B = dfb[(dfb['Rotazione'] == rot3) & (dfb['Scenario_Esteso'] == base_n) & (dfb['Mese_Progressivo'] == 61)]['total_soc'].values[0]
 
         anim3 = []
         for m in range(1, 118, 4):
@@ -169,6 +165,8 @@ with tab3:
                 temp = d_r[(d_r['Scenario_Esteso'] == s_now) & (d_r['Mese_Progressivo'] <= m)].copy()
                 temp['Sito'], temp['Frame'] = lbl, m
                 anim3.append(temp)
+        
         fig3 = px.line(pd.concat(anim3), x='Data', y='total_soc', color='Sito', animation_frame='Frame', template="plotly_white")
-        fig3 = apply_final_layout(fig3, df_snapshot3, "Confronto Territoriale", "NESSUNA", val_2026_l3)
+        # Applichiamo i due punti neri
+        fig3 = apply_final_layout(fig3, df_snapshot3, "Confronto Territoriale", "NESSUNA", [(val_2026_A, pa), (val_2026_B, pb)])
         st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': False})

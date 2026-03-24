@@ -5,33 +5,42 @@ import plotly.express as px
 # Configurazione Pagina
 st.set_page_config(page_title="Casalasco Decarb - Pro", layout="wide")
 
-# --- CSS SISTEMATO PER EVITARE TAGLI ---
+# --- CSS DEFINITIVO: TITOLO PROTETTO E SPAZI OTTIMIZZATI ---
 st.markdown("""
     <style>
+    /* 1. Aumentiamo il padding superiore del contenitore generale */
     .block-container {
-        padding-top: 1.5rem !important;
+        padding-top: 3.5rem !important; 
         padding-bottom: 0rem !important;
     }
+    
+    /* 2. Posizionamento assoluto per il titolo per evitare conflitti */
     .main-title {
         font-size: 32px !important;
         font-weight: bold !important;
         color: #1E3A8A;
-        padding-bottom: 20px;
+        margin-bottom: 25px !important;
+        line-height: 1.2 !important;
+        display: block;
     }
+
+    /* 3. Pulizia spazi widget */
     .stSelectbox label, .stRadio label, .stMultiSelect label {
-        font-size: 18px !important;
+        font-size: 17px !important;
         font-weight: bold !important;
     }
+    
+    /* 4. Evitiamo che i tab siano troppo attaccati al titolo */
     .stTabs {
-        margin-top: 10px !important;
+        margin-top: 15px !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown('<p class="main-title">🌱 Simulazione sequestro C con modello RothC - Agricoltura Rigenerativa</p>', unsafe_allow_html=True)
+# Titolo stampato con margine di sicurezza
+st.markdown('<h1 class="main-title">🌱 Simulazione sequestro C con modello RothC - Agricoltura Rigenerativa</h1>', unsafe_allow_html=True)
 
 # --- 1. MAPPATURA E COSTANTI ---
-# IMPORTANTE: base_n deve corrispondere esattamente a una delle chiavi o valori nel DF
 MAPPING = {
     "Baseline (CT)": "Baseline (CT)",
     "CC (CT)": "Cover crop (CT)",
@@ -42,7 +51,7 @@ MAPPING = {
     "MT + CC": "Minima + Cover",
     "MT + CC + Res": "Minima + Cover + Residui"
 }
-base_n = "Baseline (CT)" # Modificato da "Baseline" a "Baseline (CT)"
+base_n = "Baseline (CT)"
 
 # --- 2. FUNZIONI CORE ---
 def decode(name):
@@ -50,16 +59,16 @@ def decode(name):
 
 @st.cache_data
 def load_data(provincia, scelta_amm):
-    suffix = {"Cremona": "digestate", "Mantova": "slurry", "Piacenza": "manure"}[provincia]
-    file_name = f"{provincia}_{suffix}.xlsx" if scelta_amm == "Sì" else f"{provincia}_NO{suffix}.xlsx"
     try:
+        suffix = {"Cremona": "digestate", "Mantova": "slurry", "Piacenza": "manure"}[provincia]
+        file_name = f"{provincia}_{suffix}.xlsx" if scelta_amm == "Sì" else f"{provincia}_NO{suffix}.xlsx"
         df = pd.read_excel(file_name)
         df.columns = df.columns.str.strip()
         start_date = pd.to_datetime("2021-01-01")
         df['Data'] = df['Mese_Progressivo'].apply(lambda x: start_date + pd.DateOffset(months=int(x-1)))
         df['Scenario_Esteso'] = df['Scenario'].apply(decode)
         return df
-    except Exception:
+    except:
         return None
 
 def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferimento):
@@ -69,14 +78,14 @@ def apply_final_layout(fig, df_visualizzato, title, baseline_name, punti_riferim
     target_date = pd.to_datetime("2030-09-01")
     
     fig.update_layout(
-        height=600,
-        margin=dict(l=20, r=20, t=60, b=20),
-        title=dict(text=title, font=dict(size=22), y=0.95),
-        xaxis=dict(range=[pd.to_datetime("2021-01-01"), pd.to_datetime("2031-01-01")], tickfont=dict(size=12), showgrid=False), 
-        yaxis=dict(range=[y_min, y_max], title="Stock di C (ton/ha)", tickfont=dict(size=12), showgrid=False),
+        height=620,
+        margin=dict(l=25, r=25, t=70, b=30), # t=70 protegge il titolo del grafico
+        title=dict(text=title, font=dict(size=22), y=0.96),
+        xaxis=dict(range=[pd.to_datetime("2021-01-01"), pd.to_datetime("2031-01-01")], showgrid=False), 
+        yaxis=dict(range=[y_min, y_max], title="Stock di C (ton/ha)", showgrid=False),
         sliders=[], 
         updatemenus=[dict(
-            type="buttons", showactive=False, x=0, y=-0.12,
+            type="buttons", showactive=False, x=0, y=-0.15,
             buttons=[dict(label="▶ AVVIA SIMULAZIONE", method="animate", 
                           args=[None, {"frame": {"duration": 40, "redraw": False}, "fromcurrent": True}])]
         )]
@@ -143,9 +152,7 @@ with tab2:
         with c2a: rot2 = st.selectbox("🚜 Rotazione", df_si['Rotazione'].unique(), key="rot2")
         with c2b: scen2 = st.selectbox("✨ Scenario", [s for s in df_si['Scenario_Esteso'].unique() if base_n not in s], key="scen2")
         amm_b = st.radio("Ammendante Organico in Baseline?", ["Sì", "No"], horizontal=True, key="amm_b2")
-        
         df_br = df_si if amm_b == "Sì" else df_no
-        # SICUREZZA: Controllo se il filtro base esiste
         check_base = df_br[(df_br['Rotazione'] == rot2) & (df_br['Scenario_Esteso'] == base_n)]
         
         if not check_base.empty:
@@ -160,12 +167,9 @@ with tab2:
                     f['L'], f['Frame'] = t, m
                     frames2.append(f)
             df_a2 = pd.concat(frames2)
-            # Uso .iloc[0] che è più sicuro di .values[0]
             v26_2 = check_base[check_base['Mese_Progressivo'] == 61]['total_soc'].iloc[0]
             fig2 = px.line(df_a2, x='Data', y='total_soc', color='L', animation_frame='Frame', color_discrete_map={l_ref: "#0000FF"}, template="plotly_white")
             st.plotly_chart(apply_final_layout(fig2, df_a2, "Impatto Ammendante", l_ref, [(v26_2, "Base")]), use_container_width=True)
-        else:
-            st.warning("Dati Baseline non trovati per questa selezione.")
 
 with tab3:
     c3a, c3b = st.columns(2)
@@ -176,8 +180,6 @@ with tab3:
         rot3 = st.selectbox("🚜 Rotazione Comune", sorted(list(set(dfa['Rotazione']) & set(dfb['Rotazione']))), key="rot3")
         scen3 = st.selectbox("✨ Scenario", [s for s in dfa['Scenario_Esteso'].unique() if base_n not in s], key="scen3")
         lbl_a, lbl_b = f"Sito A: {pa} ({aa})", f"Sito B: {pb} ({ab})"
-        
-        # Verifica dati
         base_a = dfa[(dfa['Rotazione'] == rot3) & (dfa['Scenario_Esteso'] == base_n)]
         base_b = dfb[(dfb['Rotazione'] == rot3) & (dfb['Scenario_Esteso'] == base_n)]
         

@@ -63,19 +63,18 @@ if df is not None:
     scenari_sim = st.multiselect("✨ Seleziona Pratiche Rigenerative (dal 2026)", opzioni)
 
     # --- LOGICA DEI FRAME ---
-    scenari_attivi = [baseline_nome] + scenari_sim
+    # Fondamentale: mettiamo la Baseline per ULTIMA nella lista perché venga disegnata SOPRA
+    scenari_attivi = scenari_sim + [baseline_nome] 
     animation_list = []
     
-    # Prepariamo i frame
     for m in range(1, 121, 3):
         for s in scenari_attivi:
-            # Creiamo il subset per questo specifico scenario nel frame attuale
             if m <= 60:
-                # Fino al 2026: sovrapponiamo tutto alla baseline
+                # Sovrapponiamo alla baseline e forziamo lo stesso dato
                 temp = df_rot[(df_rot['Scenario_Esteso'] == baseline_nome) & (df_rot['Mese_Progressivo'] <= m)].copy()
-                temp['Scenario_Visualizzato'] = s # Gli diamo il nome dello scenario scelto, ma i dati sono della baseline
+                temp['Scenario_Visualizzato'] = s
             else:
-                # Dopo il 2026: ognuno segue la sua strada
+                # Post 2026: ognuno il suo dato
                 temp = df_rot[(df_rot['Scenario_Esteso'] == s) & (df_rot['Mese_Progressivo'] <= m)].copy()
                 temp['Scenario_Visualizzato'] = s
             
@@ -85,41 +84,37 @@ if df is not None:
     df_anim = pd.concat(animation_list)
 
     # --- GRAFICO ---
-    # Forza la baseline ad essere Blu
     color_map = {baseline_nome: "#0000FF"}
 
     fig = px.line(
-        df_anim, 
-        x='Data', 
-        y='total_soc', 
-        color='Scenario_Visualizzato',
+        df_anim, x='Data', y='total_soc', color='Scenario_Visualizzato',
         animation_frame='Frame',
         range_x=[df_rot['Data'].min(), df_rot['Data'].max()],
         range_y=[df_rot['total_soc'].min()*0.98, df_rot['total_soc'].max()*1.05],
         title=f"Simulazione SOC: {rot_scelta}",
         labels={'total_soc': 'Stock di C (ton/ha)', 'Scenario_Visualizzato': 'Strategia'},
         color_discrete_map=color_map,
-        category_orders={"Scenario_Visualizzato": scenari_attivi}, # Mantiene l'ordine in legenda
         template="plotly_white"
     )
 
-    # UI: Tasto Play e Slider rimosso
+    # UI: Tasto Play
     fig.layout.updatemenus = [dict(
         type="buttons", showactive=False, x=0, y=-0.2,
-        buttons=[dict(label="▶ AVVIA SIMULAZIONE 2021-2031", method="animate", 
+        buttons=[dict(label="▶ AVVIA SIMULAZIONE", method="animate", 
                  args=[None, {"frame": {"duration": 40, "redraw": False}, "fromcurrent": True}])]
     )]
     fig.layout.sliders = [dict(visible=False)]
     
     # Linea rossa 2026
     split_date = pd.to_datetime("2026-01-01")
-    fig.add_shape(type="line", x0=split_date, x1=split_date, y0=0, y1=1, yref="paper", 
-                  line=dict(color="Red", width=2, dash="dot"))
-    fig.add_annotation(x=split_date, y=df_rot['total_soc'].max(), text="Inizio Rigenerazione", showarrow=False, yshift=15)
+    fig.add_shape(type="line", x0=split_date, x1=split_date, y0=0, y1=1, yref="paper", line=dict(color="Red", width=2, dash="dot"))
+    
+    # Rendiamo la linea della Baseline più spessa per "coprire" meglio le altre sotto
+    fig.update_traces(line=dict(width=3), selector=dict(name=baseline_nome))
 
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-    # --- TABELLA RISULTATI ---
+    # --- TABELLA ---
     st.divider()
-    ultimi = df_rot[(df_rot['Mese_Progressivo'] == 120) & (df_rot['Scenario_Esteso'].isin(scenari_attivi))]
-    st.dataframe(ultimi[['Scenario_Esteso', 'total_soc', 'Input_C_Totale']].rename(columns={'Scenario_Esteso': 'Strategia', 'total_soc': 'Stock 2031 (ton/ha)'}))
+    ultimi = df_rot[(df_rot['Mese_Progressivo'] == 120) & (df_rot['Scenario_Esteso'].isin([baseline_nome] + scenari_sim))]
+    st.dataframe(ultimi[['Scenario_Esteso', 'total_soc', 'Input_C_Totale']])

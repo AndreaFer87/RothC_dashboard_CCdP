@@ -80,66 +80,86 @@ with tab1:
     
     if df1 is not None:
         with c3:
-            rot1 = st.selectbox("🚜 Rotazione", df1['Rotazione'].unique(), key="rot1")
+            rot_list = df1['Rotazione'].unique()
+            rot1 = st.selectbox("🚜 Rotazione", rot_list, key="rot1")
         
         df1_f = df1[df1['Rotazione'] == rot1].copy()
+        
+        # Recuperiamo tutti gli scenari tranne la baseline
         all_scens = [s for s in df1_f['Scenario_Esteso'].unique() if s != base_n]
-        
         final_targets = []
-        
-        # --- LOGICA SPECIALE PIACENZA: FREQUENZA CC ---
-        if p1 == "Piacenza" and rot1 == "Pomodoro-Frumento granella 1cc":
-            # Dividiamo gli scenari
+
+        # --- LOGICA SPECIALE PIACENZA (DOMANDA FREQUENZA CC) ---
+        # Controllo flessibile: se Provincia è Piacenza e la rotazione contiene Pomodoro e Frumento
+        is_piacenza_spec = (p1 == "Piacenza") and ("Pomodoro" in rot1 and "Frumento" in rot1)
+
+        if is_piacenza_spec:
+            # Identifichiamo gli scenari temporali (annate diverse)
             keywords = ["anno 1", "anno 3", "anno 5", "anni 1"]
             scenari_temporali = [s for s in all_scens if any(k in s.lower() for k in keywords)]
             scenari_standard = [s for s in all_scens if s not in scenari_temporali]
             
-            # Domanda attivatrice
             st.markdown("---")
-            modaliat_cc = st.radio(
+            modalita_cc = st.radio(
                 "🧐 **Vuoi analizzare l'effetto della frequenza di coltivazione delle Cover Crop?**",
                 ["No, simulazione standard", "Sì, confronta annate CC"],
-                horizontal=True
+                horizontal=True,
+                key="radio_freq_cc"
             )
             
-            if modaliat_cc == "Sì, confronta annate CC":
-                st.info("💡 In questa modalità puoi confrontare come cambia il carbonio inserendo le CC in anni diversi.")
-                scen_cc_scelti = st.multiselect("📅 Seleziona le varianti temporali CC", scenari_temporali, key="m_cc_only")
+            if modalita_cc == "Sì, confronta annate CC":
+                st.info("💡 **Analisi Frequenza**: Seleziona le varianti per vedere come cambia lo stock di C in base all'anno di inserimento della CC.")
+                scen_cc_scelti = st.multiselect("📅 Varianti temporali Cover Crop", scenari_temporali, key="m_cc_only")
                 final_targets = scen_cc_scelti + [base_n]
             else:
-                scen_std_scelti = st.multiselect("✨ Seleziona Scenari Rigenerativi", scenari_standard, key="m1_std")
+                scen_std_scelti = st.multiselect("✨ Scenari Rigenerativi Standard", scenari_standard, key="m1_std")
                 final_targets = scen_std_scelti + [base_n]
         
         else:
-            # --- CASO STANDARD PER TUTTI GLI ALTRI ---
+            # --- CASO STANDARD (Tutte le altre rotazioni/province) ---
             scen_scelti = st.multiselect("✨ Seleziona Scenari Rigenerativi", all_scens, key="m1_gen")
             final_targets = scen_scelti + [base_n]
         
-        # --- RENDER GRAFICO ---
+        # --- GENERAZIONE GRAFICO ---
         if len(final_targets) > 1:
             df_snapshot = df1_f[df1_f['Scenario_Esteso'].isin(final_targets)]
             
-            # Valore SOC 2026
+            # Calcolo valore SOC Gennaio 2026 (Mese 61)
             try:
-                val_2026 = df1_f[(df1_f['Scenario_Esteso'] == base_n) & (df1_f['Mese_Progressivo'] == 61)]['total_soc'].values[0]
+                val_2026 = df1_f[(df1_f['Scenario_Esteso'] == base_n) & 
+                                 (df1_f['Mese_Progressivo'] == 61)]['total_soc'].values[0]
             except:
                 val_2026 = df_snapshot['total_soc'].iloc[0]
             
             anim1 = []
+            # Simulazione fino a Settembre 2030 (Mese 117)
             for m in range(1, 118, 4):
                 for s in final_targets:
+                    # Logica Staffetta: Baseline fino a mese 60, poi scenario scelto
                     source = base_n if m <= 60 else s
-                    temp = df1_f[(df1_f['Scenario_Esteso'] == source) & (df1_f['Mese_Progressivo'] <= m)].copy()
-                    temp['Scenario_Visualizzato'], temp['Frame'] = s, m
+                    temp = df1_f[(df1_f['Scenario_Esteso'] == source) & 
+                                 (df1_f['Mese_Progressivo'] <= m)].copy()
+                    temp['Scenario_Visualizzato'] = s
+                    temp['Frame'] = m
                     anim1.append(temp)
             
-            fig1 = px.line(pd.concat(anim1), x='Data', y='total_soc', color='Scenario_Visualizzato', 
-                           animation_frame='Frame', color_discrete_map={base_n: "#0000FF"}, template="plotly_white")
+            # Creazione Plotly
+            fig1 = px.line(
+                pd.concat(anim1), 
+                x='Data', 
+                y='total_soc', 
+                color='Scenario_Visualizzato', 
+                animation_frame='Frame', 
+                color_discrete_map={base_n: "#0000FF"}, # Baseline sempre Blu
+                template="plotly_white"
+            )
             
+            # Applicazione Layout (No griglia, Pallino nero a Settembre 2030)
             fig1 = apply_final_layout(fig1, df_snapshot, f"Analisi Scenari - {p1}", base_n, [(val_2026, p1)])
+            
             st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
         else:
-            st.info("Scegli uno o più scenari per visualizzare la proiezione.")
+            st.warning("Seleziona almeno uno scenario per attivare la proiezione.")
 
 # --- LIVELLO 2 ---
 with tab2:

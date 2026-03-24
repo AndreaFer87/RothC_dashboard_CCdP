@@ -24,11 +24,12 @@ st.markdown("Relatore: **Andrea Ferrari**")
 def decode_scenario(name):
     if "Baseline" in name or "CT" in name:
         return "Gestione Tradizionale (Baseline)"
-    name = name.replace("CC", "Cover Crop")
-    name = name.replace("MT", "Minima Lavorazione (Minimum Tillage)")
-    name = name.replace("Res", "Residui Interrati")
-    name = name.replace("+", " + ")
-    return name
+    # Sostituzioni per nomi estesi
+    decoded = name.replace("CC", "Cover Crop")
+    decoded = decoded.replace("MT", "Minima Lavorazione")
+    decoded = decoded.replace("Res", "Residui Interrati")
+    decoded = decoded.replace("+", " + ")
+    return decoded
 
 # --- CARICAMENTO DATI EXCEL ---
 @st.cache_data
@@ -40,18 +41,18 @@ def load_data(provincia, scelta_amm):
     }
     file_name = files[provincia][scelta_amm]
     try:
+        # Nota: Assicurati che i file siano .xlsx e non .csv su GitHub
         df = pd.read_excel(file_name)
         df.columns = df.columns.str.strip()
         start_date = pd.to_datetime("2021-01-01")
         df['Data'] = df['Mese_Progressivo'].apply(lambda x: start_date + pd.DateOffset(months=int(x-1)))
-        # Applichiamo la decodifica nomi
         df['Scenario_Esteso'] = df['Scenario'].apply(decode_scenario)
         return df
     except Exception as e:
         st.error(f"Errore caricamento {file_name}: {e}")
         return None
 
-# --- FILTRI ORIZZONTALI SOPRA IL GRAFICO ---
+# --- FILTRI ORIZZONTALI ---
 col_a, col_b, col_c = st.columns(3)
 with col_a:
     prov = st.selectbox("📍 Provincia", ["Cremona", "Mantova", "Piacenza"])
@@ -68,9 +69,8 @@ if df is not None:
     scenari_estesi = df_rot['Scenario_Esteso'].unique().tolist()
     baseline_estesa = [s for s in scenari_estesi if "Baseline" in s][0]
     
-    # Selezione scenari rigenerativi (Sotto i primi filtri)
     scenari_sim_estesi = st.multiselect(
-        "✨ Scegli le Pratiche Rigenerative da confrontare (dal 2026)", 
+        "✨ Scegli le Pratiche Rigenerative da confrontare", 
         [s for s in scenari_estesi if s != baseline_estesa]
     )
 
@@ -80,17 +80,15 @@ if df is not None:
     
     for m in range(1, 121, 3):
         for scen in scenari_attivi:
-            # Dati baseline
             if scen == baseline_estesa:
                 temp = df_rot[(df_rot['Scenario_Esteso'] == scen) & (df_rot['Mese_Progressivo'] <= m)].copy()
-            # Dati scenari rigenerativi
             else:
                 if m < 60:
-                    # Prima del 2026 ricalcano la baseline (colore unico)
+                    # Copia la baseline fino al 2026 per evitare che la linea parta da zero
                     temp = df_rot[(df_rot['Scenario_Esteso'] == baseline_estesa) & (df_rot['Mese_Progressivo'] <= m)].copy()
                     temp['Scenario_Esteso'] = scen 
                 else:
-                    # Dal 2026 usano i loro dati reali
+                    # Dati reali dello scenario
                     temp = df_rot[(df_rot['Scenario_Esteso'] == scen) & (df_rot['Mese_Progressivo'] <= m)].copy()
             
             temp['Frame'] = m
@@ -99,8 +97,8 @@ if df is not None:
     df_anim = pd.concat(animation_list)
 
     # --- GRAFICO ---
-    # Definiamo i colori: Baseline sempre BLU
-    color_map = {baseline_estesa: "#0000FF"} # Blu puro
+    # Mappa colori: Baseline BLU, gli altri colori automatici di Plotly
+    color_map = {baseline_estesa: "#0000FF"}
     
     fig = px.line(
         df_anim, 
@@ -111,14 +109,14 @@ if df is not None:
         range_x=[df_rot['Data'].min(), df_rot['Data'].max()],
         range_y=[df_rot['total_soc'].min()*0.95, df_rot['total_soc'].max()*1.05],
         title=f"Proiezione Stock Carbonio - {rot_scelta}",
-        labels={'total_soc': 'Stock di C (ton/ha)', 'Data': 'Anno', 'Scenario_Esteso': 'Pratica Agricola'},
+        labels={'total_soc': 'Stock di C (ton/ha)', 'Data': 'Anno', 'Scenario_Esteso': 'Pratica'},
         color_discrete_map=color_map,
         template="plotly_white"
     )
 
-    # Layout tasto Play e Slider nascosto
+    # Configurazione PLAY sotto il grafico
     fig.layout.updatemenus = [dict(
-        type="buttons", showactive=False, x=0, y=-0.2,
+        type="buttons", showactive=False, x=0, y=-0.25,
         buttons=[dict(label="▶ AVVIA SIMULAZIONE 2021-2031", method="animate", 
                  args=[None, {"frame": {"duration": 40, "redraw": False}, "fromcurrent": True}])]
     )]
@@ -128,7 +126,11 @@ if df is not None:
     split_date = pd.to_datetime("2026-01-01")
     fig.add_shape(type="line", x0=split_date, x1=split_date, y0=0, y1=1, yref="paper", 
                   line=dict(color="Red", width=2, dash="dot"))
-    fig.add_annotation(x=split_date, y=df_rot['total_soc'].max(), text="Inizio Pratiche Rigenerative", showarrow=False, ysift=10)
+    
+    # CORREZIONE ERRORE: yshift invece di ysift
+    fig.add_annotation(x=split_date, y=df_rot['total_soc'].max(), 
+                       text="Inizio Pratiche Rigenerative", 
+                       showarrow=False, yshift=15)
 
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
@@ -139,7 +141,7 @@ if df is not None:
     
     st.dataframe(
         ultimi_dati[['Scenario_Esteso', 'total_soc', 'Input_C_Totale']]
-        .rename(columns={'total_soc': 'Stock C finale (ton/ha)', 'Input_C_Totale': 'Input C totale/anno'})
+        .rename(columns={'total_soc': 'Stock C finale (ton/ha)', 'Input_C_Totale': 'Input C (ton/ha/anno)'})
         .style.highlight_max(subset=['Stock C finale (ton/ha)'], color='#d4edda'),
         use_container_width=True
     )

@@ -78,18 +78,18 @@ with tab1:
     
     if df1 is not None:
         with c3:
-            # Filtriamo le rotazioni: mostriamo solo quelle standard (escludiamo i dataset 'year')
+            # Mostriamo solo le rotazioni standard
             all_rots = df1['Rotazione'].unique()
-            rots_standard = [r for r in all_rots if "year" not in str(r).lower()]
-            rot1 = st.selectbox("🚜 Rotazione", sorted(rots_standard), key="rot1")
+            rots_standard = sorted([r for r in all_rots if "year" not in str(r).lower()])
+            rot1 = st.selectbox("🚜 Rotazione", rots_standard, key="rot1")
         
-        df1_f = df1[df1['Rotazione'] == rot1].copy()
-        all_scens = [s for s in df1_f['Scenario_Esteso'].unique() if s != base_n]
+        # Dataset Baseline di riferimento (il tronco comune)
+        df_base_real = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == base_n)].copy()
         
         final_targets = []
-        df_plot_data = pd.DataFrame()
+        df_merged_scenarios = pd.DataFrame()
 
-        # LOGICA SPECIALE: Solo Piacenza No Ammendante e la rotazione specifica
+        # LOGICA SPECIALE PIACENZA CC
         is_piacenza_cc = (p1 == "Piacenza" and a1 == "No" and "Pomodoro - Frumento" in rot1)
 
         if is_piacenza_cc:
@@ -111,61 +111,77 @@ with tab1:
                 scelte_cc = st.multiselect("📅 Seleziona frequenza Cover Crop", list(mapping_cc.keys()), key="m_cc_piacenza")
                 
                 if scelte_cc:
-                    # Costruiamo il dataset: Baseline dalla rotazione standard + scenari CC dalle rotazioni special
-                    build_list = []
-                    # Baseline
-                    b_df = df1_f[df1_f['Scenario_Esteso'] == base_n].copy()
-                    b_df['Legenda'] = base_n
-                    build_list.append(b_df)
-                    # Scenari Temporali
+                    # COSTRUZIONE DATASET PULITO (Senza doppie linee)
+                    temp_list = []
+                    # 1. Aggiungiamo la Baseline pura
+                    temp_list.append(df_base_real.assign(Legenda=base_n))
+                    
+                    # 2. Costruiamo gli scenari "Staffetta"
                     for s in scelte_cc:
-                        r_spec = mapping_cc[s]
-                        t_df = df1[(df1['Rotazione'] == r_spec) & (df1['Scenario'].str.contains("CC", na=False))].copy()
-                        t_df['Legenda'] = s
-                        build_list.append(t_df)
-                    df_plot_data = pd.concat(build_list)
+                        rot_speciale = mapping_cc[s]
+                        # Dati dal file speciale (prendiamo lo scenario CC)
+                        df_spec = df1[(df1['Rotazione'] == rot_speciale) & (df1['Scenario'].str.contains("CC", na=False))].copy()
+                        
+                        # Creiamo lo scenario unificato: 2021-2026 (Base) + 2026-2030 (Speciale)
+                        parte_storica = df_base_real[df_base_real['Mese_Progressivo'] <= 60].copy()
+                        parte_futura = df_spec[df_spec['Mese_Progressivo'] > 60].copy()
+                        
+                        unificato = pd.concat([parte_storica, parte_futura])
+                        unificato['Legenda'] = s
+                        temp_list.append(unificato)
+                    
+                    df_merged_scenarios = pd.concat(temp_list)
                     final_targets = [base_n] + scelte_cc
             else:
-                scen_scelti = st.multiselect("✨ Seleziona Scenari Rigenerativi", all_scens, key="m1_std")
+                # Modalità Standard Piacenza
+                all_scens = [s for s in df1[df1['Rotazione'] == rot1]['Scenario_Esteso'].unique() if s != base_n]
+                scen_scelti = st.multiselect("✨ Scenari Rigenerativi Standard", all_scens, key="m1_std")
+                
+                temp_list = [df_base_real.assign(Legenda=base_n)]
+                for s in scen_scelti:
+                    df_s = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == s)].copy()
+                    unificato = pd.concat([df_base_real[df_base_real['Mese_Progressivo'] <= 60], df_s[df_s['Mese_Progressivo'] > 60]])
+                    unificato['Legenda'] = s
+                    temp_list.append(unificato)
+                df_merged_scenarios = pd.concat(temp_list)
                 final_targets = [base_n] + scen_scelti
-                df_plot_data = df1_f[df1_f['Scenario_Esteso'].isin(final_targets)].copy()
-                df_plot_data['Legenda'] = df_plot_data['Scenario_Esteso']
+
         else:
             # CASO STANDARD (Altre province/rotazioni)
+            all_scens = [s for s in df1[df1['Rotazione'] == rot1]['Scenario_Esteso'].unique() if s != base_n]
             scen_scelti = st.multiselect("✨ Seleziona Scenari Rigenerativi", all_scens, key="m1_gen")
+            
+            temp_list = [df_base_real.assign(Legenda=base_n)]
+            for s in scen_scelti:
+                df_s = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == s)].copy()
+                unificato = pd.concat([df_base_real[df_base_real['Mese_Progressivo'] <= 60], df_s[df_s['Mese_Progressivo'] > 60]])
+                unificato['Legenda'] = s
+                temp_list.append(unificato)
+            df_merged_scenarios = pd.concat(temp_list)
             final_targets = [base_n] + scen_scelti
-            df_plot_data = df1_f[df1_f['Scenario_Esteso'].isin(final_targets)].copy()
-            df_plot_data['Legenda'] = df_plot_data['Scenario_Esteso']
 
-        # --- GENERAZIONE GRAFICO ---
+        # --- DISEGNO GRAFICO ANIMATO ---
         if len(final_targets) > 1:
-            try:
-                val_2026 = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == base_n) & (df1['Mese_Progressivo'] == 61)]['total_soc'].values[0]
-            except:
-                val_2026 = df_plot_data['total_soc'].iloc[0]
-
-            anim1 = []
+            val_2026 = df_base_real[df_base_real['Mese_Progressivo'] == 61]['total_soc'].values[0]
+            
+            anim_frames = []
             for m in range(1, 118, 4):
-                for s in final_targets:
-                    if m <= 60:
-                        # Prima del 2026 tutti seguono la Baseline della rotazione principale
-                        temp = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == base_n) & (df1['Mese_Progressivo'] <= m)].copy()
-                    else:
-                        # Dopo il 2026 ognuno segue il suo scenario
-                        temp = df_plot_data[(df_plot_data['Legenda'] == s) & (df_plot_data['Mese_Progressivo'] <= m)].copy()
-                    
-                    temp['Legenda_Anim'], temp['Frame'] = s, m
-                    anim1.append(temp)
+                temp_frame = df_merged_scenarios[df_merged_scenarios['Mese_Progressivo'] <= m].copy()
+                temp_frame['Frame'] = m
+                anim_frames.append(temp_frame)
             
-            # Plot
-            fig1 = px.line(pd.concat(anim1), x='Data', y='total_soc', color='Legenda_Anim', 
-                           animation_frame='Frame', color_discrete_map={base_n: "#0000FF"}, template="plotly_white")
+            df_anim = pd.concat(anim_frames)
             
-            fig1 = apply_final_layout(fig1, df_plot_data, f"Analisi Proiezioni - {p1}", base_n, [(val_2026, p1)])
-            # Portiamo la linea Baseline "in primo piano"
-            fig1.update_traces(line=dict(width=3), selector=dict(name=base_n))
+            fig1 = px.line(df_anim, x='Data', y='total_soc', color='Legenda', 
+                           animation_frame='Frame', 
+                           color_discrete_map={base_n: "#0000FF"}, 
+                           template="plotly_white")
+            
+            fig1 = apply_final_layout(fig1, df_merged_scenarios, f"Proiezione Stock Carbonio - {p1}", base_n, [(val_2026, p1)])
+            
+            # Baseline sempre in primo piano e più spessa
+            fig1.update_traces(line=dict(width=3.5), selector=dict(name=base_n))
             st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
-
 # --- LIVELLO 2 E 3 (Invariati) ---
 with tab2:
     p2 = st.selectbox("📍 Provincia", ["Cremona", "Mantova", "Piacenza"], key="p2")

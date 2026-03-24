@@ -82,37 +82,27 @@ with tab1:
         scen_list = []
         targets1 = []
         
-        # LOGICA SPECIALE PIACENZA NO AMMENDANTE
         if p1 == "Piacenza" and a1 == "No" and "Pomodoro" in rot1:
             st.markdown("---")
             cc_c1, cc_c2 = st.columns(2)
             with cc_c1: mod_cc = st.radio("🧐 **Analisi Frequenza Cover Crop?**", ["No", "Sì"], horizontal=True, key="mcc_piac")
             
             if mod_cc == "Sì":
-                # MAPPING RICHIESTO
-                m_cc = {
-                    "CC Anno 1": "year1",
-                    "CC Anno 3": "year3",
-                    "CC Anno 5": "year5",
-                    "CC Anni 1 e 3": "year13",
-                    "CC Anni 1 e 5": "year15"
-                }
+                m_cc = {"CC Anno 1": "year1", "CC Anno 3": "year3", "CC Anno 5": "year5", "CC Anni 1 e 3": "year13", "CC Anni 1 e 5": "year15"}
                 with cc_c2: s_cc = st.selectbox("✨ Pratica", [s for s in df1['Scenario_Esteso'].unique() if s != base_n], key="scc_p_val")
                 f_sel = st.multiselect("📅 Seleziona Frequenze", list(m_cc.keys()))
                 
                 if f_sel:
                     targets1 = f_sel + [base_n]
                     for s in targets1:
-                        if s == base_n: 
-                            u = base_df1.copy()
+                        if s == base_n: u = base_df1.copy()
                         else:
-                            # Cerchiamo la rotazione che contiene la stringa yearX
                             df_spec = df1[(df1['Rotazione'].astype(str).str.contains(m_cc[s])) & (df1['Scenario_Esteso'] == s_cc)].copy()
                             u = pd.concat([base_df1[base_df1['Mese_Progressivo'] <= 60], df_spec[df_spec['Mese_Progressivo'] > 60]])
                         u['Legenda_Anim'] = s
                         scen_list.append(u)
             else:
-                s_std = st.multiselect("✨ Scenari", [s for s in df1[df1['Rotazione'] == rot1]['Scenario_Esteso'].unique() if s != base_n], key="sstd_piac")
+                s_std = st.multiselect("✨ Scenari", [s for s in df1[df1['Rotazione'] == rot1]['Scenario_Esteso'].unique() if s != base_n])
                 targets1 = s_std + [base_n]
                 for s in targets1:
                     df_s = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == s)].copy()
@@ -120,8 +110,7 @@ with tab1:
                     u['Legenda_Anim'] = s
                     scen_list.append(u)
         else:
-            # LOGICA STANDARD
-            s_std = st.multiselect("✨ Scenari", [s for s in df1[df1['Rotazione'] == rot1]['Scenario_Esteso'].unique() if s != base_n], key="sstd_other")
+            s_std = st.multiselect("✨ Scenari", [s for s in df1[df1['Rotazione'] == rot1]['Scenario_Esteso'].unique() if s != base_n])
             targets1 = s_std + [base_n]
             for s in targets1:
                 df_s = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == s)].copy()
@@ -131,15 +120,21 @@ with tab1:
 
         if scen_list and targets1:
             df_m1 = pd.concat(scen_list)
-            v26_1 = base_df1[base_df1['Mese_Progressivo'] == 61]['total_soc'].values[0]
+            
+            # --- FIX INDEX ERROR ---
+            temp_2026 = base_df1[base_df1['Mese_Progressivo'] >= 60]
+            v26_1 = temp_2026['total_soc'].iloc[0] if not temp_2026.empty else base_df1['total_soc'].iloc[-1]
+            
             anim1 = []
             for m in range(1, 121, 4):
                 for s in targets1:
                     t_f = df_m1[(df_m1['Legenda_Anim'] == s) & (df_m1['Mese_Progressivo'] <= m)].copy()
                     t_f['Frame'] = m
                     anim1.append(t_f)
-            fig1 = px.line(pd.concat(anim1).sort_values(['Frame', 'Mese_Progressivo']), x='Data', y='total_soc', color='Legenda_Anim', animation_frame='Frame', color_discrete_map={base_n: "#0000FF"}, template="plotly_white")
-            st.plotly_chart(apply_final_layout(fig1, df_m1, f"Proiezione - {p1}", base_n, [(v26_1, p1)]), use_container_width=True)
+            
+            if anim1:
+                fig1 = px.line(pd.concat(anim1).sort_values(['Frame', 'Mese_Progressivo']), x='Data', y='total_soc', color='Legenda_Anim', animation_frame='Frame', color_discrete_map={base_n: "#0000FF"}, template="plotly_white")
+                st.plotly_chart(apply_final_layout(fig1, df_m1, f"Proiezione - {p1}", base_n, [(v26_1, p1)]), use_container_width=True)
 
 # --- LIVELLO 2 ---
 with tab2:
@@ -165,6 +160,11 @@ with tab2:
             scen_list2.append(u)
         
         df_m2 = pd.concat(scen_list2)
+        
+        # FIX INDEX ERROR L2
+        temp_2026_2 = dref2[(dref2['Rotazione'] == r2) & (dref2['Scenario_Esteso'] == base_n) & (dref2['Mese_Progressivo'] >= 60)]
+        v26_2 = temp_2026_2['total_soc'].iloc[0] if not temp_2026_2.empty else 0
+        
         anim2 = []
         for m in range(1, 121, 4):
             for t in t2_list:
@@ -172,7 +172,6 @@ with tab2:
                 t_f['Frame'] = m
                 anim2.append(t_f)
         
-        v26_2 = dref2[(dref2['Rotazione'] == r2) & (dref2['Scenario_Esteso'] == base_n) & (dref2['Mese_Progressivo'] == 61)]['total_soc'].values[0]
         fig2 = px.line(pd.concat(anim2).sort_values(['Frame', 'Mese_Progressivo']), x='Data', y='total_soc', color='Legenda_Anim', animation_frame='Frame', color_discrete_map={b_lbl: "#0000FF"}, template="plotly_white")
         st.plotly_chart(apply_final_layout(fig2, df_m2, f"Impatto Ammendante - {p2}", b_lbl, [(v26_2, "Base")]), use_container_width=True)
 
@@ -196,6 +195,13 @@ with tab3:
             scen_list3.append(u)
             
         df_m3 = pd.concat(scen_list3)
+        
+        # FIX INDEX ERROR L3
+        t26a = dfa[(dfa['Rotazione'] == r3) & (dfa['Scenario_Esteso'] == base_n) & (dfa['Mese_Progressivo'] >= 60)]
+        v26a = t26a['total_soc'].iloc[0] if not t26a.empty else 0
+        t26b = dfb[(dfb['Rotazione'] == r3) & (dfb['Scenario_Esteso'] == base_n) & (dfb['Mese_Progressivo'] >= 60)]
+        v26b = t26b['total_soc'].iloc[0] if not t26b.empty else 0
+        
         anim3 = []
         for m in range(1, 121, 4):
             for lbl in [la, lb]:
@@ -203,7 +209,5 @@ with tab3:
                 t_f['Frame'] = m
                 anim3.append(t_f)
         
-        v26a = dfa[(dfa['Rotazione'] == r3) & (dfa['Scenario_Esteso'] == base_n) & (dfa['Mese_Progressivo'] == 61)]['total_soc'].values[0]
-        v26b = dfb[(dfb['Rotazione'] == r3) & (dfb['Scenario_Esteso'] == base_n) & (dfb['Mese_Progressivo'] == 61)]['total_soc'].values[0]
         fig3 = px.line(pd.concat(anim3).sort_values(['Frame', 'Mese_Progressivo']), x='Data', y='total_soc', color='Legenda_Anim', animation_frame='Frame', template="plotly_white")
         st.plotly_chart(apply_final_layout(fig3, df_m3, "Confronto Territoriale", "NONE", [(v26a, pa), (v26b, pb)]), use_container_width=True)

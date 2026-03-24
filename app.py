@@ -38,7 +38,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # Titolo stampato con margine di sicurezza
-st.markdown('<h1 class="main-title">🌱 Simulazione sequestro C con modello RothC - Agricoltura Rigenerativa</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">🌱 Simulazione sequestro C con modello RothC </h1>', unsafe_allow_html=True)
 
 # --- 1. MAPPATURA E COSTANTI ---
 MAPPING = {

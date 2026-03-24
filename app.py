@@ -77,23 +77,22 @@ with tab1:
     df1 = load_data(p1, a1)
     
     if df1 is not None:
-        # Rotazioni disponibili pulite
-        all_rots = list(df1['Rotazione'].unique())
-        
         with c3:
-            # Se siamo a Piacenza, forziamo la visualizzazione della rotazione target
-            if p1 == "Piacenza":
-                rot_standard = "Pomodoro - Frumento granella"
-                # Verifichiamo se esiste, altrimenti prendiamo la prima
-                rot1 = st.selectbox("🚜 Rotazione", [rot_standard] if rot_standard in all_rots else all_rots, key="rot1")
-            else:
-                rot1 = st.selectbox("🚜 Rotazione", all_rots, key="rot1")
+            # Filtriamo le rotazioni: mostriamo solo quelle standard (escludiamo i dataset 'year')
+            all_rots = df1['Rotazione'].unique()
+            rots_standard = [r for r in all_rots if "year" not in str(r).lower()]
+            rot1 = st.selectbox("🚜 Rotazione", sorted(rots_standard), key="rot1")
+        
+        df1_f = df1[df1['Rotazione'] == rot1].copy()
+        all_scens = [s for s in df1_f['Scenario_Esteso'].unique() if s != base_n]
         
         final_targets = []
-        df_plot = pd.DataFrame()
+        df_plot_data = pd.DataFrame()
 
-        # --- LOGICA SPECIALE PIACENZA NO MANURE ---
-        if p1 == "Piacenza" and a1 == "No" and "Pomodoro - Frumento" in rot1:
+        # LOGICA SPECIALE: Solo Piacenza No Ammendante e la rotazione specifica
+        is_piacenza_cc = (p1 == "Piacenza" and a1 == "No" and "Pomodoro - Frumento" in rot1)
+
+        if is_piacenza_cc:
             st.markdown("---")
             modalita_cc = st.radio(
                 "🧐 **Vuoi analizzare l'effetto della frequenza di coltivazione delle Cover Crop?**",
@@ -102,7 +101,6 @@ with tab1:
             )
 
             if modalita_cc == "Sì, confronta annate CC":
-                # Mappa delle rotazioni specifiche per le annate
                 mapping_cc = {
                     "CC Anno 1": "Pomodoro - Frumento granella 1cc year1",
                     "CC Anno 3": "Pomodoro - Frumento granella 1cc year3",
@@ -110,68 +108,62 @@ with tab1:
                     "CC Anni 1 e 3": "Pomodoro - Frumento granella 1cc year13",
                     "CC Anni 1 e 5": "Pomodoro - Frumento granella 1cc year15"
                 }
-                
                 scelte_cc = st.multiselect("📅 Seleziona frequenza Cover Crop", list(mapping_cc.keys()), key="m_cc_piacenza")
                 
                 if scelte_cc:
-                    # Per ogni scelta, prendiamo lo scenario 'CC (CT)' dalle rotazioni speciali
-                    lista_df = []
-                    # Aggiungiamo sempre la Baseline della rotazione standard
-                    base_df = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == base_n)].copy()
-                    base_df['Legenda'] = base_n
-                    lista_df.append(base_df)
-                    
+                    # Costruiamo il dataset: Baseline dalla rotazione standard + scenari CC dalle rotazioni special
+                    build_list = []
+                    # Baseline
+                    b_df = df1_f[df1_f['Scenario_Esteso'] == base_n].copy()
+                    b_df['Legenda'] = base_n
+                    build_list.append(b_df)
+                    # Scenari Temporali
                     for s in scelte_cc:
-                        nome_rot_special = mapping_cc[s]
-                        temp_df = df1[(df1['Rotazione'] == nome_rot_special) & (df1['Scenario'].str.contains("CC", na=False))].copy()
-                        temp_df['Legenda'] = s
-                        lista_df.append(temp_df)
-                    
-                    df_plot = pd.concat(lista_df)
-                    final_targets = list(df_plot['Legenda'].unique())
-            
+                        r_spec = mapping_cc[s]
+                        t_df = df1[(df1['Rotazione'] == r_spec) & (df1['Scenario'].str.contains("CC", na=False))].copy()
+                        t_df['Legenda'] = s
+                        build_list.append(t_df)
+                    df_plot_data = pd.concat(build_list)
+                    final_targets = [base_n] + scelte_cc
             else:
-                # Simulazione Standard Piacenza
-                df1_f = df1[df1['Rotazione'] == rot1].copy()
-                all_scens = [s for s in df1_f['Scenario_Esteso'].unique() if s != base_n]
                 scen_scelti = st.multiselect("✨ Seleziona Scenari Rigenerativi", all_scens, key="m1_std")
-                final_targets = scen_scelti + [base_n]
-                df_plot = df1_f[df1_f['Scenario_Esteso'].isin(final_targets)].copy()
-                df_plot['Legenda'] = df_plot['Scenario_Esteso']
-
+                final_targets = [base_n] + scen_scelti
+                df_plot_data = df1_f[df1_f['Scenario_Esteso'].isin(final_targets)].copy()
+                df_plot_data['Legenda'] = df_plot_data['Scenario_Esteso']
         else:
-            # --- CASO NORMALE (Altre province o Piacenza con Manure) ---
-            df1_f = df1[df1['Rotazione'] == rot1].copy()
-            all_scens = [s for s in df1_f['Scenario_Esteso'].unique() if s != base_n]
+            # CASO STANDARD (Altre province/rotazioni)
             scen_scelti = st.multiselect("✨ Seleziona Scenari Rigenerativi", all_scens, key="m1_gen")
-            final_targets = scen_scelti + [base_n]
-            df_plot = df1_f[df1_f['Scenario_Esteso'].isin(final_targets)].copy()
-            df_plot['Legenda'] = df_plot['Scenario_Esteso']
+            final_targets = [base_n] + scen_scelti
+            df_plot_data = df1_f[df1_f['Scenario_Esteso'].isin(final_targets)].copy()
+            df_plot_data['Legenda'] = df_plot_data['Scenario_Esteso']
 
         # --- GENERAZIONE GRAFICO ---
-        if len(final_targets) > 1 and not df_plot.empty:
-            # Calcolo pallino nero 2026 (sempre dalla baseline standard)
-            val_2026 = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == base_n) & (df1['Mese_Progressivo'] == 61)]['total_soc'].values[0]
-            
+        if len(final_targets) > 1:
+            try:
+                val_2026 = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == base_n) & (df1['Mese_Progressivo'] == 61)]['total_soc'].values[0]
+            except:
+                val_2026 = df_plot_data['total_soc'].iloc[0]
+
             anim1 = []
             for m in range(1, 118, 4):
                 for s in final_targets:
-                    # Logica staffetta
-                    source_name = base_n if m <= 60 else s
-                    temp = df_plot[(df_plot['Legenda'] == s) & (df_plot['Mese_Progressivo'] <= m)].copy()
-                    # Se siamo nel periodo baseline, sovrascriviamo i dati con quelli della baseline reale
                     if m <= 60:
-                        real_base = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == base_n) & (df1['Mese_Progressivo'] <= m)].copy()
-                        real_base['Legenda'] = s
-                        temp = real_base
+                        # Prima del 2026 tutti seguono la Baseline della rotazione principale
+                        temp = df1[(df1['Rotazione'] == rot1) & (df1['Scenario_Esteso'] == base_n) & (df1['Mese_Progressivo'] <= m)].copy()
+                    else:
+                        # Dopo il 2026 ognuno segue il suo scenario
+                        temp = df_plot_data[(df_plot_data['Legenda'] == s) & (df_plot_data['Mese_Progressivo'] <= m)].copy()
                     
-                    temp['Frame'] = m
+                    temp['Legenda_Anim'], temp['Frame'] = s, m
                     anim1.append(temp)
             
-            fig1 = px.line(pd.concat(anim1), x='Data', y='total_soc', color='Legenda', 
+            # Plot
+            fig1 = px.line(pd.concat(anim1), x='Data', y='total_soc', color='Legenda_Anim', 
                            animation_frame='Frame', color_discrete_map={base_n: "#0000FF"}, template="plotly_white")
             
-            fig1 = apply_final_layout(fig1, df_plot, f"Analisi Scenari - {p1}", base_n, [(val_2026, p1)])
+            fig1 = apply_final_layout(fig1, df_plot_data, f"Analisi Proiezioni - {p1}", base_n, [(val_2026, p1)])
+            # Portiamo la linea Baseline "in primo piano"
+            fig1.update_traces(line=dict(width=3), selector=dict(name=base_n))
             st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 
 # --- LIVELLO 2 E 3 (Invariati) ---
